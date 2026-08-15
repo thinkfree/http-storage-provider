@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible Provider or documentation defect without sensitive data.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report a security vulnerability here. Use the private process in SECURITY.md.
+  - type: dropdown
+    id: implementation
+    attributes:
+      label: Affected implementation
+      options:
+        - Node.js
+        - Java
+        - Python
+        - Protocol or schemas
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: Commit SHA or branch used for the reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Observed symptom
+      description: Include the operation, safe path, HTTP status, and visible result. Redact JWTs, secrets, credentials, and document content.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe sequence that reproduces the defect.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true

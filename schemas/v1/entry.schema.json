@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TFO HTTP Storage entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["path", "name", "type", "size", "readable", "writable", "locked"],
+  "properties": {
+    "path": {
+      "type": "string",
+      "maxLength": 4096,
+      "description": "UTF-8 path relative to the Provider root. The root is an empty string."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "type": {
+      "enum": ["file", "directory"]
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Content length in bytes. A directory must use zero."
+    },
+    "readable": {"type": "boolean"},
+    "writable": {"type": "boolean"},
+    "locked": {"type": "boolean"},
+    "locker": {"type": ["string", "null"], "maxLength": 255},
+    "createdAt": {"type": ["string", "null"], "format": "date-time"},
+    "modifiedAt": {"type": ["string", "null"], "format": "date-time"},
+    "revision": {"type": ["string", "null"], "maxLength": 1024}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"type": {"const": "directory"}},
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {"size": {"const": 0}}
+      }
+    }
+  ]
+}

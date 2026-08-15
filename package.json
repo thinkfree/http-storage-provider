@@ -1,0 +1,26 @@
+{
+  "name": "@thinkfree/http-storage-provider",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Express reference implementation of TFO HTTP Storage Protocol v1",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.mjs",
+    "init": "node scripts/init-local.mjs",
+    "generate-secret": "node scripts/generate-secret.mjs",
+    "smoke": "node --env-file-if-exists=.env scripts/smoke.mjs",
+    "test": "node --test",
+    "format:check": "prettier --check 'src/**/*.mjs' 'test/**/*.mjs' 'scripts/**/*.mjs' 'package.json'",
+    "check": "npm test && npm run format:check && node scripts/check-doc-links.mjs"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}

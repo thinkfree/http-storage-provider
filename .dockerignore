@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.idea
+.vscode
+node_modules
+coverage
+target
+.venv
+__pycache__
+examples
+docs
+schemas
+scripts
+test
+*.log
