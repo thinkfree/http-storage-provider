@@ -19,6 +19,10 @@ secret, and Provider base URL, and preserves those values on later runs. The
 expected root listing contains the tracked sample Office documents in
 `storage/samples/`.
 
+The code uses a FastAPI application factory, `APIRouter`, dependency injection,
+Pydantic Settings and models, exception handlers, and a replaceable storage
+service under `app/`.
+
 With the server running, verify one signed root-list request in another shell:
 
 ```bash
@@ -28,6 +32,9 @@ With the server running, verify one signed root-list request in another shell:
 Run the complete lifecycle tests with:
 
 ```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
 .venv/bin/python -m unittest -v
 ```
 

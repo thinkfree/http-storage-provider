@@ -26,6 +26,9 @@ Stop another example server using port `8080` before starting this one.
 ## Run the tests
 
 ```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
 .venv/bin/python -m unittest -v
 ```
 
@@ -33,7 +36,21 @@ The expected result is two passing tests. The suite exercises all nine storage
 operations against real files, a complete save, fixed download length, replay
 rejection, traversal rejection, and root protection.
 
-`provider.py` owns the FastAPI application, JWT verification, local storage,
-replay state, locks, and PUT staging. `run.py` owns local initialization and
-Uvicorn startup. This separation lets another Python service reuse
-`StorageProvider` and replace the HTTP or storage boundary deliberately.
+The example follows the usual FastAPI application-factory and dependency
+injection layout:
+
+| Source | Responsibility |
+| --- | --- |
+| `app/main.py` | Creates the FastAPI application and registers exception handlers. |
+| `app/config.py` | Loads and validates environment values with Pydantic Settings. |
+| `app/api/routes.py` | Defines the `APIRouter`, streams request bodies, and returns FastAPI responses. |
+| `app/api/dependencies.py` | Exposes typed FastAPI dependencies from application state. |
+| `app/models.py` | Defines Pydantic response and request models. |
+| `app/security.py` | Verifies the signed JWT against the actual ASGI request. |
+| `app/services/storage.py` | Implements the replaceable local storage service. |
+| `app/state.py` | Owns local replay, lock, and upload-staging state. |
+| `run.py` | Creates the local example configuration and starts the Uvicorn application factory. |
+
+Production integrations can replace `LocalDirectoryStorageService` while
+retaining the router, Pydantic models, security verifier, and exception
+handlers.

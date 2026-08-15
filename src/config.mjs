@@ -19,12 +19,19 @@ export function loadConfig(environment = process.env) {
     );
   }
   if (!requestJwtSecret || Buffer.byteLength(requestJwtSecret, "utf8") < 32) {
-    throw new Error("TFO_STORAGE_REQUEST_JWT_SECRET must contain at least 32 UTF-8 bytes");
+    throw new Error(
+      "TFO_STORAGE_REQUEST_JWT_SECRET must contain at least 32 UTF-8 bytes",
+    );
   }
 
   return Object.freeze({
     host: environment.TFO_STORAGE_HOST || "127.0.0.1",
-    port: parseInteger("TFO_STORAGE_PORT", environment.TFO_STORAGE_PORT || "8080", 1, 65535),
+    port: parseInteger(
+      "TFO_STORAGE_PORT",
+      environment.TFO_STORAGE_PORT || "8080",
+      1,
+      65535,
+    ),
     storageRoot: path.resolve(environment.TFO_STORAGE_ROOT || "./storage"),
     rootName: environment.TFO_STORAGE_ROOT_NAME || "Documents",
     adapter,

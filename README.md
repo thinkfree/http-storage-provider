@@ -14,7 +14,7 @@ keeps the code focused on request authentication, path handling, streaming,
 metadata, locking, and the storage lifecycle. Replace the filesystem operations
 with your S3, database, or storage service implementation for production.
 
-## Run the Node.js Provider
+## Run the Node.js Express Provider
 
 Prerequisites: Git and Node.js 22 or later.
 
@@ -35,9 +35,9 @@ Request JWT secret: <generated 256-bit value>
 Provider base URL: http://127.0.0.1:8080
 ```
 
-The Provider immediately lists `Welcome.txt` and the tracked Word, Cell, and
-Show files below [`storage/samples`](storage/samples). Add more files below
-`storage/` and they become available without restarting the server.
+The Express Provider immediately lists `Welcome.txt` and the tracked Word,
+Cell, and Show files below [`storage/samples`](storage/samples). Add more files
+below `storage/` and they become available without restarting the server.
 
 The expected startup result is:
 
@@ -151,8 +151,8 @@ path traversal, and symbolic links are not part of this contract.
   metadata, and errors.
 - [Security and production checklist](docs/security.md): trust boundaries,
   replay storage, paths, locks, staging, TLS, and multi-replica requirements.
-- [Node.js Provider guide](docs/nodejs.md): source map, configuration, tests,
-  and Docker use.
+- [Node.js Provider guide](docs/nodejs.md): Express application structure,
+  configuration, tests, and Docker use.
 - [Java Provider guide](docs/java.md): Spring Boot application, executable JAR,
   configuration, and tests.
 - [Python Provider guide](docs/python.md): FastAPI and Uvicorn startup, source
@@ -179,7 +179,9 @@ npm run check
 cd examples/java
 mvn test
 cd ../python
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r requirements.txt -r requirements-dev.txt
+ruff check .
+ruff format --check .
 python3 -m unittest -v
 ```
 

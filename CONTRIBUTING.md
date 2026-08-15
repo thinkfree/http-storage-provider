@@ -35,7 +35,9 @@ mvn test
 
 cd ../python
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
 .venv/bin/python -m unittest -v
 ```
 

@@ -4,13 +4,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import os
 import secrets
+from pathlib import Path
 
 import uvicorn
-
-from provider import ProviderConfig, create_app
-
 
 directory = Path(__file__).resolve().parent
 configuration_file = directory / ".provider-config.json"
@@ -27,21 +25,35 @@ else:
         "requestJwtSecret": secrets.token_urlsafe(32),
         "maxDocumentBytes": 536_870_912,
     }
-    configuration_file.write_text(json.dumps(configuration, indent=2) + "\n", encoding="utf-8")
+    configuration_file.write_text(
+        json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
+    )
     configuration_file.chmod(0o600)
-    print("Created an ignored local configuration in examples/python/.provider-config.json.")
+    print(
+        "Created an ignored local configuration in examples/python/.provider-config.json."
+    )
 
-config = ProviderConfig(
-    host=configuration["host"],
-    port=int(configuration["port"]),
-    storage_root=Path(configuration["storageRoot"]),
-    root_name=configuration["rootName"],
-    adapter=configuration["adapter"],
-    request_jwt_secret=configuration["requestJwtSecret"],
-    max_document_bytes=int(configuration["maxDocumentBytes"]),
+environment = {
+    "TFO_STORAGE_HOST": str(configuration["host"]),
+    "TFO_STORAGE_PORT": str(configuration["port"]),
+    "TFO_STORAGE_ROOT": str(configuration["storageRoot"]),
+    "TFO_STORAGE_ROOT_NAME": str(configuration["rootName"]),
+    "TFO_STORAGE_ADAPTER": str(configuration["adapter"]),
+    "TFO_STORAGE_REQUEST_JWT_SECRET": str(configuration["requestJwtSecret"]),
+    "TFO_STORAGE_MAX_DOCUMENT_BYTES": str(configuration["maxDocumentBytes"]),
+}
+os.environ.update(environment)
+
+print(f"Adapter name: {environment['TFO_STORAGE_ADAPTER']}")
+print(f"Request JWT secret: {environment['TFO_STORAGE_REQUEST_JWT_SECRET']}")
+print(
+    f"Provider base URL: http://{environment['TFO_STORAGE_HOST']}:{environment['TFO_STORAGE_PORT']}"
 )
-print(f"Adapter name: {config.adapter}")
-print(f"Request JWT secret: {config.request_jwt_secret}")
-print(f"Provider base URL: http://{config.host}:{config.port}")
-print(f"Storage root: {config.storage_root.resolve()}")
-uvicorn.run(create_app(config), host=config.host, port=config.port, log_level="info")
+print(f"Storage root: {Path(environment['TFO_STORAGE_ROOT']).resolve()}")
+uvicorn.run(
+    "app.main:create_app",
+    factory=True,
+    host=environment["TFO_STORAGE_HOST"],
+    port=int(environment["TFO_STORAGE_PORT"]),
+    log_level="info",
+)

@@ -2,7 +2,7 @@
   "name": "@thinkfree/http-storage-provider",
   "version": "0.1.0",
   "private": true,
-  "description": "Reference implementation of the TFO HTTP Storage Provider protocol",
+  "description": "Express reference implementation of TFO HTTP Storage Protocol v1",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -13,7 +13,14 @@
     "generate-secret": "node scripts/generate-secret.mjs",
     "smoke": "node --env-file-if-exists=.env scripts/smoke.mjs",
     "test": "node --test",
-    "check": "npm test && node scripts/check-doc-links.mjs"
+    "format:check": "prettier --check 'src/**/*.mjs' 'test/**/*.mjs' 'scripts/**/*.mjs' 'package.json'",
+    "check": "npm test && npm run format:check && node scripts/check-doc-links.mjs"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "dependencies": {
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
 }

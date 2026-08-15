@@ -14,6 +14,7 @@
 
 - [ ] `npm run check`
 - [ ] `mvn test` in `examples/java`
+- [ ] `.venv/bin/ruff check .` and `.venv/bin/ruff format --check .` in `examples/python`
 - [ ] `.venv/bin/python -m unittest -v` in `examples/python`
 - [ ] Sample OOXML hashes and ZIP structures verified
 - [ ] No secret, JWT, credential, or customer document added

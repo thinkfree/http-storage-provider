@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-class LocalDirectoryProviderTest {
+class HttpStorageProviderApplicationTest {
     private static final String ADAPTER = "customer-storage-a";
     private static final String SECRET = "java-provider-test-secret-at-least-32-bytes";
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -53,7 +53,7 @@ class LocalDirectoryProviderTest {
         storageRoot = temporaryDirectory.resolve("storage");
         Files.createDirectories(storageRoot.resolve("contracts"));
         Files.writeString(storageRoot.resolve("contracts/sample document.docx"), "original");
-        application = new SpringApplicationBuilder(ProviderApplication.class).run(
+        application = new SpringApplicationBuilder(HttpStorageProviderApplication.class).run(
                 "--server.address=127.0.0.1",
                 "--server.port=0",
                 "--spring.main.banner-mode=off",
@@ -126,6 +126,13 @@ class LocalDirectoryProviderTest {
         assertEquals(401, send("GET", path, null, null, token).statusCode());
         assertEquals(400, send("GET", "/tfo-storage/v1/%2E%2E/info", null, null, null).statusCode());
         assertEquals(400, send("DELETE", "/tfo-storage/v1/delete", null, null, null).statusCode());
+        assertEquals(400, send(
+                "POST",
+                "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+                "{\"owner\":\"\"}".getBytes(StandardCharsets.UTF_8),
+                "application/json",
+                null
+        ).statusCode());
     }
 
     private HttpResponse<byte[]> send(

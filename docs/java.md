@@ -26,17 +26,24 @@ Stop another Provider using port `8080` before running this command.
 
 | Source | Responsibility |
 | --- | --- |
-| `ProviderApplication.java` | Starts the Spring Boot application and scans external configuration. |
-| `ProviderConfig.java` | Binds and validates Spring configuration, environment values, and storage limits. |
-| `TfoStorageRequestVerifier.java` | Verifies the signed JWT against the actual request before storage access. |
-| `LocalDirectoryProvider.java` | Implements the Spring MVC boundary, all routes, local storage, replay protection, locks, and staging. |
-| `LocalDirectoryProviderTest.java` | Starts Spring Boot on a random port and exercises the complete lifecycle, replay rejection, and path protection. |
+| `HttpStorageProviderApplication.java` | Starts the Spring Boot application and enables typed configuration. |
+| `config/StorageProperties.java` | Binds and validates `tfo.storage.*` configuration. |
+| `web/StorageController.java` | Implements the Spring MVC request boundary and delegates storage work. |
+| `web/StorageExceptionHandler.java` | Maps application and filesystem failures to stable HTTP responses. |
+| `web/StorageRouteParser.java` | Parses the exact signed raw URI before document-path conversion. |
+| `security/RequestJwtVerifier.java` | Verifies the signed JWT against the actual request before storage access. |
+| `service/LocalDirectoryStorageService.java` | Implements the replaceable local storage service. |
+| `service/StorageStateStore.java` | Owns local replay, lock, and upload-staging state. |
+| `model/StorageEntry.java` | Defines the JSON metadata DTO returned by Spring MVC. |
+| `HttpStorageProviderApplicationTest.java` | Starts Spring Boot on a random port and exercises the complete lifecycle and security boundaries. |
 
-The example `application.properties` maps `TFO_STORAGE_ROOT` to
-`tfo.storage.root` and maps the other documented environment variables in the
-same way. Applications that already use Spring Boot can provide the
-`tfo.storage.*` properties directly in `application.properties` or
-`application.yaml` without changing the Provider logic.
+The example follows standard Spring constructor injection, typed
+`@ConfigurationProperties`, `@RestController`, `@Service`, and
+`@RestControllerAdvice` boundaries. `application.properties` maps
+`TFO_STORAGE_ROOT` to `tfo.storage.root` and maps the other documented
+environment variables in the same way. Applications that already use Spring
+Boot can provide the `tfo.storage.*` properties directly in
+`application.properties` or `application.yaml`.
 
 ## Run the tests and package the server
 

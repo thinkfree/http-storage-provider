@@ -1,10 +1,10 @@
-# Run the Node.js local-directory Provider
+# Run the Node.js Express Provider
 
-The Node.js server at the repository root is a complete TFO HTTP Storage
-Provider. It uses `storage/` so you can clone the repository, start the server,
-and inspect every protocol operation without configuring an external storage
-service. The filesystem is an example boundary, not a production storage
-recommendation.
+The Node.js server at the repository root is a complete Express application
+for TFO HTTP Storage Protocol v1. It uses `storage/` so you can clone the
+repository, start the server, and inspect every protocol operation without
+configuring an external storage service. The filesystem is an example boundary,
+not a production storage recommendation.
 
 ## Start the server
 
@@ -25,13 +25,16 @@ so the adapter identity and secret remain stable across restarts.
 
 | Source | Responsibility |
 | --- | --- |
-| `src/server.mjs` | Starts the HTTP server and reports non-secret configuration. |
-| `src/provider.mjs` | Routes and executes every storage operation. |
-| `src/auth.mjs` | Verifies HS256 JWT and actual-request equality. |
-| `src/path-policy.mjs` | Decodes path segments and prevents traversal and symbolic-link access. |
-| `src/state-store.mjs` | Stores replay IDs, locks, and PUT staging files below a hidden state directory. |
+| `src/app.mjs` | Composes the Express application, router, services, and error middleware. |
+| `src/server.mjs` | Starts the Express application and reports non-secret configuration. |
+| `src/routes/storage-router.mjs` | Implements the HTTP boundary, raw body handling, and operation dispatch. |
+| `src/security/request-jwt-verifier.mjs` | Verifies HS256 JWT and actual-request equality. |
+| `src/services/local-directory-storage-service.mjs` | Implements the replaceable local storage service. |
+| `src/repositories/local-state-store.mjs` | Stores replay IDs, locks, and PUT staging files below a hidden state directory. |
+| `src/middleware/error-handler.mjs` | Maps expected errors without exposing secrets. |
+| `src/domain/storage-route.mjs` | Parses signed raw paths and enforces path policy. |
 | `src/config.mjs` | Validates environment configuration. |
-| `test/provider.test.mjs` | Exercises the complete lifecycle and security failures. |
+| `test/app.test.mjs` | Starts Express on a real port and exercises the complete lifecycle and security failures. |
 
 The Provider writes request state below
 `storage/.tfo-http-storage-state/`. Listing hides this reserved directory, and
@@ -82,6 +85,6 @@ docker run --rm \
 The two explicit values override the host-only paths in `.env` after Docker
 loads the adapter name and secret.
 
-For production, replace the local filesystem calls with the intended backing
-store, use a shared atomic replay/lock store across replicas, and follow the
-[security checklist](security.md).
+For production, replace `LocalDirectoryStorageService` with the intended
+backing store, use a shared atomic replay/lock repository across replicas, and
+follow the [security checklist](security.md).
