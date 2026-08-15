@@ -19,7 +19,7 @@
     <properties>
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <nimbus.version>9.37.4</nimbus.version>
+        <nimbus.version>10.9.1</nimbus.version>
     </properties>
 
     <dependencies>
