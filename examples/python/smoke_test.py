@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Send one signed root-list request to a running local Python example."""
 
 import base64
