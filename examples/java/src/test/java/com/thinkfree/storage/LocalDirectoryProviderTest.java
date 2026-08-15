@@ -12,6 +12,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -41,7 +44,7 @@ class LocalDirectoryProviderTest {
     Path temporaryDirectory;
 
     private Path storageRoot;
-    private LocalDirectoryProvider provider;
+    private ConfigurableApplicationContext application;
     private HttpClient client;
     private String baseUrl;
 
@@ -50,15 +53,25 @@ class LocalDirectoryProviderTest {
         storageRoot = temporaryDirectory.resolve("storage");
         Files.createDirectories(storageRoot.resolve("contracts"));
         Files.writeString(storageRoot.resolve("contracts/sample document.docx"), "original");
-        provider = LocalDirectoryProvider.start(new ProviderConfig(
-                "127.0.0.1", 0, storageRoot, "Documents", ADAPTER, SECRET, 1024 * 1024));
+        application = new SpringApplicationBuilder(ProviderApplication.class).run(
+                "--server.address=127.0.0.1",
+                "--server.port=0",
+                "--spring.main.banner-mode=off",
+                "--logging.level.root=WARN",
+                "--tfo.storage.root=" + storageRoot,
+                "--tfo.storage.root-name=Documents",
+                "--tfo.storage.adapter=" + ADAPTER,
+                "--tfo.storage.request-jwt-secret=" + SECRET,
+                "--tfo.storage.max-document-bytes=1048576"
+        );
         client = HttpClient.newHttpClient();
-        baseUrl = "http://127.0.0.1:" + provider.address().getPort();
+        int port = ((ServletWebServerApplicationContext) application).getWebServer().getPort();
+        baseUrl = "http://127.0.0.1:" + port;
     }
 
     @AfterEach
     void tearDown() {
-        provider.close();
+        application.close();
     }
 
     @Test

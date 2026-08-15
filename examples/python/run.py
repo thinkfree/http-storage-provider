@@ -7,7 +7,9 @@ import json
 from pathlib import Path
 import secrets
 
-from provider import ProviderConfig, create_server
+import uvicorn
+
+from provider import ProviderConfig, create_app
 
 
 directory = Path(__file__).resolve().parent
@@ -38,14 +40,8 @@ config = ProviderConfig(
     request_jwt_secret=configuration["requestJwtSecret"],
     max_document_bytes=int(configuration["maxDocumentBytes"]),
 )
-server = create_server(config)
 print(f"Adapter name: {config.adapter}")
 print(f"Request JWT secret: {config.request_jwt_secret}")
-print(f"Provider base URL: http://{config.host}:{server.server_address[1]}")
+print(f"Provider base URL: http://{config.host}:{config.port}")
 print(f"Storage root: {config.storage_root.resolve()}")
-try:
-    server.serve_forever()
-except KeyboardInterrupt:
-    pass
-finally:
-    server.server_close()
+uvicorn.run(create_app(config), host=config.host, port=config.port, log_level="info")

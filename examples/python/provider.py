@@ -15,15 +15,15 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
-import shutil
 import tempfile
 import time
 from typing import Any
 from urllib.parse import unquote_to_bytes, urlsplit
-import uuid
+
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 
 PROTOCOL_PREFIX = "/tfo-storage/v1"
@@ -322,30 +322,15 @@ class StorageProvider:
         return request
 
 
-class ProviderRequestHandler(BaseHTTPRequestHandler):
-    server_version = "ThinkfreeHTTPStorageExample/1"
+class ProviderHttpApplication:
+    """FastAPI HTTP boundary around the storage implementation."""
 
-    @property
-    def provider(self) -> StorageProvider:
-        return self.server.provider  # type: ignore[attr-defined]
+    def __init__(self, config: ProviderConfig) -> None:
+        self.provider = StorageProvider(config)
 
-    def do_GET(self) -> None:  # noqa: N802
-        self._handle()
-
-    def do_PUT(self) -> None:  # noqa: N802
-        self._handle()
-
-    def do_POST(self) -> None:  # noqa: N802
-        self._handle()
-
-    def do_DELETE(self) -> None:  # noqa: N802
-        self._handle()
-
-    def log_message(self, format: str, *args: Any) -> None:
-        print(f"{self.client_address[0]} - {format % args}")
-
-    def _content_length(self, required: bool) -> int:
-        value = self.headers.get("Content-Length")
+    @staticmethod
+    def _content_length(request: Request, required: bool) -> int:
+        value = request.headers.get("Content-Length")
         if value is None:
             if required:
                 raise ProviderError(411, "Content-Length is required")
@@ -354,23 +339,24 @@ class ProviderRequestHandler(BaseHTTPRequestHandler):
             raise ProviderError(400, "Content-Length must be a non-negative integer")
         return int(value)
 
-    def _reject_chunked(self) -> None:
-        if self.headers.get("Transfer-Encoding") is not None:
+    @staticmethod
+    def _reject_chunked(request: Request) -> None:
+        if request.headers.get("Transfer-Encoding") is not None:
             raise ProviderError(400, "Chunked request bodies are not supported")
 
-    def _fixed_body(self, maximum: int) -> tuple[bytes, str]:
-        self._reject_chunked()
-        length = self._content_length(True)
+    async def _fixed_body(self, request: Request, maximum: int) -> tuple[bytes, str]:
+        self._reject_chunked(request)
+        length = self._content_length(request, True)
         if length > maximum:
             raise ProviderError(413, "The request body is too large")
-        body = self.rfile.read(length)
+        body = await request.body()
         if len(body) != length:
             raise ProviderError(400, "The request body does not match Content-Length")
         return body, hashlib.sha256(body).hexdigest()
 
-    def _stage_put(self) -> tuple[Path, int, str]:
-        self._reject_chunked()
-        length = self._content_length(True)
+    async def _stage_put(self, request: Request) -> tuple[Path, int, str]:
+        self._reject_chunked(request)
+        length = self._content_length(request, True)
         if length > self.provider.config.max_document_bytes:
             raise ProviderError(413, "The document exceeds the Provider size limit")
         staged = self.provider.state.staging_file()
@@ -378,13 +364,16 @@ class ProviderRequestHandler(BaseHTTPRequestHandler):
         remaining = length
         try:
             with staged.open("wb") as output:
-                while remaining:
-                    chunk = self.rfile.read(min(64 * 1024, remaining))
+                async for chunk in request.stream():
                     if not chunk:
+                        continue
+                    if len(chunk) > remaining:
                         raise ProviderError(400, "The request body does not match Content-Length")
                     output.write(chunk)
                     digest.update(chunk)
                     remaining -= len(chunk)
+                if remaining:
+                    raise ProviderError(400, "The request body does not match Content-Length")
                 output.flush()
                 os.fsync(output.fileno())
             return staged, length, digest.hexdigest()
@@ -402,59 +391,61 @@ class ProviderRequestHandler(BaseHTTPRequestHandler):
             raise ProviderError(400, f"The request body must contain only a non-empty {field} string")
         return value[field]
 
-    def _handle(self) -> None:
+    async def handle(self, request: Request) -> Response:
         staged: Path | None = None
         committed = False
         try:
-            if self.command == "GET" and self.path == "/healthz":
-                self._text(200, "ok\n")
-                return
-            route = self.provider.parse_route(self.path, self.command)
-            content_type = self.headers.get("Content-Type")
+            raw_path = request.scope.get("raw_path", request.url.path.encode("ascii")).decode("ascii")
+            raw_target = raw_path if not request.url.query else f"{raw_path}?{request.url.query}"
+            route = self.provider.parse_route(raw_target, request.method)
+            content_type = request.headers.get("Content-Type")
             body = b""
             if route.operation == "put":
                 if content_type != "application/octet-stream":
                     raise ProviderError(415, "PUT requires application/octet-stream")
-                staged, length, digest = self._stage_put()
+                staged, length, digest = await self._stage_put(request)
             elif route.operation in {"lock", "unlock", "mkdir", "rename"}:
                 if content_type != "application/json":
                     raise ProviderError(415, "This operation requires application/json")
-                body, digest = self._fixed_body(16 * 1024)
+                body, digest = await self._fixed_body(request, 16 * 1024)
                 length = len(body)
             else:
-                self._reject_chunked()
-                if self._content_length(False) != 0:
+                self._reject_chunked(request)
+                if self._content_length(request, False) != 0:
                     raise ProviderError(400, "This operation does not accept a request body")
                 length, digest = 0, EMPTY_SHA256
             self.provider.verify(
-                self.headers.get("X-TFO-Storage-Request-JWT"),
-                self.headers.get("X-TFO-Storage-Adapter"),
-                self.command,
+                request.headers.get("X-TFO-Storage-Request-JWT"),
+                request.headers.get("X-TFO-Storage-Adapter"),
+                request.method,
                 route.raw_path,
                 content_type,
                 length,
                 digest,
             )
-            committed = self._execute(route, body, staged)
+            response, committed = self._execute(route, body, staged)
+            return response
         except ProviderError as error:
-            self._text(error.status, error.message)
+            return self._text(error.status, error.message)
         except FileNotFoundError:
-            self._text(404, "Not found")
+            return self._text(404, "Not found")
         except PermissionError:
-            self._text(403, "Storage access was denied")
+            return self._text(403, "Storage access was denied")
         except OSError as error:
             if error.errno in {39, 66}:  # ENOTEMPTY on Linux/macOS.
-                self._text(409, "The directory is not empty")
-            else:
-                print("Storage request failed")
-                self._text(500, "Storage request failed")
+                return self._text(409, "The directory is not empty")
+            print(f"Storage request failed: {type(error).__name__}")
+            return self._text(500, "Storage request failed")
+        except Exception as error:
+            print(f"Storage request failed: {type(error).__name__}")
+            return self._text(500, "Storage request failed")
         finally:
             if staged is not None and not committed:
                 staged.unlink(missing_ok=True)
 
-    def _execute(self, route: Route, body: bytes, staged: Path | None) -> bool:
+    def _execute(self, route: Route, body: bytes, staged: Path | None) -> tuple[Response, bool]:
         if route.operation == "info":
-            self._json(200, self.provider.entry(route.segments))
+            return self._json(200, self.provider.entry(route.segments)), False
         elif route.operation == "list":
             directory = self.provider.directory(route.segments)
             children = sorted(
@@ -463,19 +454,18 @@ class ProviderRequestHandler(BaseHTTPRequestHandler):
             )
             if len(children) > 10_000:
                 raise ProviderError(413, "The directory contains more than 10000 entries")
-            self._json(200, {"entries": [self.provider.entry(route.segments + (child.name,)) for child in children]})
+            return self._json(200, {
+                "entries": [self.provider.entry(route.segments + (child.name,)) for child in children]
+            }), False
         elif route.operation == "get":
             file = self.provider.safe_path(route.segments)
             if not file.is_file():
                 raise ProviderError(409, "The requested item is not a file")
-            size = file.stat().st_size
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            with file.open("rb") as input_file:
-                shutil.copyfileobj(input_file, self.wfile, 64 * 1024)
+            return FileResponse(
+                file,
+                media_type="application/octet-stream",
+                headers={"Cache-Control": "no-store"},
+            ), False
         elif route.operation == "put":
             if not route.segments or staged is None:
                 raise ProviderError(400, "A document path is required")
@@ -485,15 +475,14 @@ class ProviderRequestHandler(BaseHTTPRequestHandler):
                 raise ProviderError(409, "A directory already uses this path")
             os.replace(staged, target)
             metadata = target.stat()
-            self._text(200, f"{metadata.st_mtime_ns}-{metadata.st_size}")
-            return True
+            return self._text(200, f"{metadata.st_mtime_ns}-{metadata.st_size}"), True
         elif route.operation == "lock":
             self.provider.entry(route.segments)
             self.provider.state.acquire_lock(route.document_path, self._single_string(body, "owner"))
-            self._empty(204)
+            return self._empty(204), False
         elif route.operation == "unlock":
             self.provider.state.release_lock(route.document_path, self._single_string(body, "owner"))
-            self._empty(204)
+            return self._empty(204), False
         elif route.operation == "mkdir":
             name = self.provider._segment(self._single_string(body, "name"))
             if len(name) > 255:
@@ -503,7 +492,7 @@ class ProviderRequestHandler(BaseHTTPRequestHandler):
                 target.mkdir()
             except FileExistsError:
                 raise ProviderError(409, "An item already uses this name") from None
-            self._empty(204)
+            return self._empty(204), False
         elif route.operation == "rename":
             if not route.segments:
                 raise ProviderError(400, "The storage root cannot be renamed")
@@ -514,38 +503,53 @@ class ProviderRequestHandler(BaseHTTPRequestHandler):
             if target.exists():
                 raise ProviderError(409, "An item already uses this name")
             source.rename(target)
-            self._empty(204)
+            return self._empty(204), False
         elif route.operation == "delete":
             if not route.segments:
                 raise ProviderError(400, "The storage root cannot be deleted")
             self.provider.state.require_unlocked(route.document_path)
             target = self.provider.safe_path(route.segments)
             target.rmdir() if target.is_dir() else target.unlink()
-            self._empty(204)
-        return False
+            return self._empty(204), False
+        raise ProviderError(404, "Unknown storage operation")
 
-    def _json(self, status: int, value: Any) -> None:
-        body = json.dumps(value, separators=(",", ":")).encode("utf-8")
-        self._buffer(status, body, "application/json; charset=utf-8")
+    @staticmethod
+    def _json(status: int, value: Any) -> Response:
+        return JSONResponse(value, status_code=status, headers={"Cache-Control": "no-store"})
 
-    def _text(self, status: int, value: str) -> None:
-        self._buffer(status, value.encode("utf-8"), "text/plain; charset=utf-8")
+    @staticmethod
+    def _text(status: int, value: str) -> Response:
+        return PlainTextResponse(value, status_code=status, headers={"Cache-Control": "no-store"})
 
-    def _buffer(self, status: int, body: bytes, content_type: str) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _empty(self, status: int) -> None:
-        self.send_response(status)
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
+    @staticmethod
+    def _empty(status: int) -> Response:
+        return Response(status_code=status, headers={"Cache-Control": "no-store"})
 
 
-def create_server(config: ProviderConfig) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((config.host, config.port), ProviderRequestHandler)
-    server.provider = StorageProvider(config)  # type: ignore[attr-defined]
-    return server
+def create_app(config: ProviderConfig) -> FastAPI:
+    """Create a complete FastAPI Provider around the local-directory example."""
+    http_application = ProviderHttpApplication(config)
+    app = FastAPI(
+        title="Thinkfree HTTP Storage Provider",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    app.state.storage_provider = http_application.provider
+
+    @app.get("/healthz", include_in_schema=False)
+    async def health() -> Response:
+        return PlainTextResponse("ok\n", headers={"Cache-Control": "no-store"})
+
+    # Catch all methods and paths so verification sees the original raw path,
+    # including percent-encoding, before storage routing is performed.
+    @app.api_route(
+        "/{provider_path:path}",
+        methods=["GET", "POST", "PUT", "DELETE"],
+        include_in_schema=False,
+    )
+    async def protocol_request(request: Request, provider_path: str) -> Response:
+        del provider_path
+        return await http_application.handle(request)
+
+    return app

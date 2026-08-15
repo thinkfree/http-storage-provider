@@ -6,13 +6,16 @@ import hmac
 from http.client import HTTPConnection
 import json
 from pathlib import Path
+import socket
 import tempfile
 import threading
 import time
 import unittest
 import uuid
 
-from provider import ProviderConfig, create_server
+import uvicorn
+
+from provider import ProviderConfig, create_app
 
 
 ADAPTER = "customer-storage-a"
@@ -57,17 +60,35 @@ class LocalDirectoryProviderTest(unittest.TestCase):
         self.root = Path(self.temporary.name) / "storage"
         (self.root / "contracts").mkdir(parents=True)
         (self.root / "contracts" / "sample document.docx").write_text("original", encoding="utf-8")
-        self.server = create_server(ProviderConfig(
+        application = create_app(ProviderConfig(
             "127.0.0.1", 0, self.root, "Documents", ADAPTER, SECRET, 1024 * 1024
         ))
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind(("127.0.0.1", 0))
+        self.port = self.socket.getsockname()[1]
+        self.server = uvicorn.Server(uvicorn.Config(
+            application,
+            host="127.0.0.1",
+            port=self.port,
+            log_level="warning",
+            lifespan="off",
+        ))
+        self.thread = threading.Thread(
+            target=self.server.run,
+            kwargs={"sockets": [self.socket]},
+            daemon=True,
+        )
         self.thread.start()
-        self.port = self.server.server_address[1]
+        deadline = time.time() + 5
+        while not self.server.started and time.time() < deadline:
+            time.sleep(0.01)
+        if not self.server.started:
+            self.fail("Uvicorn did not start")
 
     def tearDown(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
+        self.server.should_exit = True
         self.thread.join(timeout=5)
+        self.socket.close()
         self.temporary.cleanup()
 
     def send(
@@ -89,7 +110,9 @@ class LocalDirectoryProviderTest(unittest.TestCase):
         connection = HTTPConnection("127.0.0.1", self.port, timeout=5)
         connection.request(method, path, body=body, headers=headers)
         response = connection.getresponse()
-        result = response.status, dict(response.getheaders()), response.read()
+        result = response.status, {
+            name.lower(): value for name, value in response.getheaders()
+        }, response.read()
         connection.close()
         return result
 
@@ -105,7 +128,7 @@ class LocalDirectoryProviderTest(unittest.TestCase):
 
         status, headers, body = self.send("GET", f"/tfo-storage/v1/{file}/get")
         self.assertEqual(200, status)
-        self.assertEqual("8", headers["Content-Length"])
+        self.assertEqual("8", headers["content-length"])
         self.assertEqual(b"original", body)
 
         lock = b'{"owner":"office-runtime-1"}'

@@ -1,10 +1,10 @@
 # Run the Java local-directory Provider
 
-The Java 17 example under `examples/java/` is a complete Provider server. It
-uses `examples/java/storage/` to keep the example focused on the protocol. This
-local-directory design is for runnable evaluation; replace the filesystem
-methods with your production storage implementation while preserving the
-verified request boundary.
+The Java 17 example under `examples/java/` is a complete Spring Boot Provider
+server. It uses `examples/java/storage/` to keep the example focused on the
+protocol. This local-directory design is for runnable evaluation; replace the
+filesystem methods with your production storage implementation while
+preserving the verified request boundary.
 
 ## Start the server
 
@@ -16,9 +16,9 @@ cd examples/java
 ```
 
 On its first run, the script creates an ignored `.env.java` with a stable
-adapter name and random secret. It builds an executable shaded JAR and starts
-the server. The expected root listing contains the tracked Word, Cell, and Show
-documents below `storage/samples/`.
+adapter name and random secret. It builds an executable Spring Boot JAR and
+starts the embedded server. The expected root listing contains the tracked
+Word, Cell, and Show documents below `storage/samples/`.
 
 Stop another Provider using port `8080` before running this command.
 
@@ -26,15 +26,17 @@ Stop another Provider using port `8080` before running this command.
 
 | Source | Responsibility |
 | --- | --- |
-| `ProviderMain.java` | Loads configuration, starts the server, and closes it during JVM shutdown. |
-| `ProviderConfig.java` | Validates environment values and storage limits. |
+| `ProviderApplication.java` | Starts the Spring Boot application and scans external configuration. |
+| `ProviderConfig.java` | Binds and validates Spring configuration, environment values, and storage limits. |
 | `TfoStorageRequestVerifier.java` | Verifies the signed JWT against the actual request before storage access. |
-| `LocalDirectoryProvider.java` | Implements all routes, local storage, replay protection, locks, and staging. |
-| `LocalDirectoryProviderTest.java` | Exercises the complete lifecycle, replay rejection, and path protection. |
+| `LocalDirectoryProvider.java` | Implements the Spring MVC boundary, all routes, local storage, replay protection, locks, and staging. |
+| `LocalDirectoryProviderTest.java` | Starts Spring Boot on a random port and exercises the complete lifecycle, replay rejection, and path protection. |
 
-The example uses the JDK HTTP server to avoid making a web framework part of
-the public protocol. A Spring, Jakarta REST, or Netty application can reuse the
-same verifier and operation rules.
+The example `application.properties` maps `TFO_STORAGE_ROOT` to
+`tfo.storage.root` and maps the other documented environment variables in the
+same way. Applications that already use Spring Boot can provide the
+`tfo.storage.*` properties directly in `application.properties` or
+`application.yaml` without changing the Provider logic.
 
 ## Run the tests and package the server
 

@@ -2,14 +2,16 @@ package com.thinkfree.storage;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.Headers;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -33,8 +35,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Complete TFO HTTP Storage Provider example backed by one local directory.
@@ -43,7 +43,8 @@ import java.util.concurrent.Executors;
  * A production Provider can replace these filesystem operations with S3, a
  * database, or another document store while preserving the HTTP contract.</p>
  */
-public final class LocalDirectoryProvider implements AutoCloseable {
+@RestController
+public final class LocalDirectoryProvider {
     private static final String PREFIX = "/tfo-storage/v1";
     private static final String STATE_DIRECTORY = ".tfo-http-storage-state";
     private static final String EMPTY_SHA256 =
@@ -54,102 +55,83 @@ public final class LocalDirectoryProvider implements AutoCloseable {
 
     private final ProviderConfig config;
     private final ProviderStateStore state;
-    private final HttpServer server;
-    private final ExecutorService executor;
     private final TfoStorageRequestVerifier verifier = new TfoStorageRequestVerifier();
 
-    private LocalDirectoryProvider(ProviderConfig config) throws IOException {
+    public LocalDirectoryProvider(ProviderConfig config) throws IOException {
         this.config = config;
         Files.createDirectories(config.storageRoot());
         this.state = new ProviderStateStore(config.storageRoot(), config.adapter());
-        this.server = HttpServer.create(new InetSocketAddress(config.host(), config.port()), 0);
-        this.executor = Executors.newFixedThreadPool(Math.max(4, Runtime.getRuntime().availableProcessors()));
-        server.setExecutor(executor);
-        server.createContext("/", this::handle);
     }
 
-    public static LocalDirectoryProvider start(ProviderConfig config) throws IOException {
-        LocalDirectoryProvider provider = new LocalDirectoryProvider(config);
-        provider.server.start();
-        return provider;
+    @GetMapping("/healthz")
+    public void health(HttpServletResponse response) throws IOException {
+        sendText(response, 200, "ok\n");
     }
 
-    public InetSocketAddress address() {
-        return server.getAddress();
-    }
-
-    @Override
-    public void close() {
-        server.stop(0);
-        executor.shutdownNow();
-    }
-
-    private void handle(HttpExchange exchange) throws IOException {
+    @RequestMapping(
+            value = "/tfo-storage/v1/**",
+            method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE}
+    )
+    public void handle(HttpServletRequest request, HttpServletResponse response) throws IOException {
         StagedBody staged = null;
         try {
-            if ("GET".equals(exchange.getRequestMethod()) && "/healthz".equals(exchange.getRequestURI().getRawPath())) {
-                sendText(exchange, 200, "ok\n");
-                return;
-            }
-
-            Route route = parseRoute(exchange);
+            Route route = parseRoute(request);
             Body body;
             if ("put".equals(route.operation())) {
-                requireContentType(exchange, "application/octet-stream");
-                staged = stageBody(exchange);
+                requireContentType(request, "application/octet-stream");
+                staged = stageBody(request);
                 body = staged;
             } else if (Set.of("lock", "unlock", "mkdir", "rename").contains(route.operation())) {
-                requireContentType(exchange, "application/json");
-                body = readBody(exchange, 16 * 1024);
+                requireContentType(request, "application/json");
+                body = readBody(request, 16 * 1024);
             } else {
-                rejectTransferEncoding(exchange);
-                if (contentLength(exchange, false) != 0) {
+                rejectTransferEncoding(request);
+                if (contentLength(request, false) != 0) {
                     throw new ProviderException(400, "This operation does not accept a request body");
                 }
                 body = new Body(0, EMPTY_SHA256, null);
             }
 
             TfoStorageRequestVerifier.VerifiedRequest verified = verifier.verify(
-                    header(exchange, "X-TFO-Storage-Request-JWT"),
+                    header(request, "X-TFO-Storage-Request-JWT"),
                     config.requestJwtSecret(),
-                    header(exchange, "X-TFO-Storage-Adapter"),
+                    header(request, "X-TFO-Storage-Adapter"),
                     config.adapter(),
-                    exchange.getRequestMethod(),
+                    request.getMethod(),
                     route.rawPath(),
-                    header(exchange, "Content-Type"),
+                    header(request, "Content-Type"),
                     body.length(),
                     body.sha256(),
                     state::consumeJti
             );
-            execute(exchange, route, body, verified);
+            execute(response, route, body, verified);
             if (staged != null && staged.committed) staged = null;
         } catch (TfoStorageRequestVerifier.RequestAuthenticationException exception) {
-            sendText(exchange, 401, "Unauthorized");
+            sendText(response, 401, "Unauthorized");
         } catch (ProviderException exception) {
-            sendText(exchange, exception.status, exception.getMessage());
+            sendText(response, exception.status, exception.getMessage());
         } catch (NoSuchFileException exception) {
-            sendText(exchange, 404, "Not found");
+            sendText(response, 404, "Not found");
         } catch (java.nio.file.DirectoryNotEmptyException exception) {
-            sendText(exchange, 409, "The directory is not empty");
+            sendText(response, 409, "The directory is not empty");
         } catch (java.nio.file.AccessDeniedException exception) {
-            sendText(exchange, 403, "Storage access was denied");
+            sendText(response, 403, "Storage access was denied");
         } catch (Exception exception) {
             System.err.println("Storage request failed: " + exception.getClass().getSimpleName());
-            sendText(exchange, 500, "Storage request failed");
+            sendText(response, 500, "Storage request failed");
         } finally {
             if (staged != null) Files.deleteIfExists(staged.file);
-            exchange.close();
         }
     }
 
     private void execute(
-            HttpExchange exchange,
+            HttpServletResponse response,
             Route route,
             Body body,
             TfoStorageRequestVerifier.VerifiedRequest verified
     ) throws Exception {
         switch (route.operation()) {
-            case "info" -> sendJson(exchange, 200, entry(route.segments()));
+            case "info" -> sendJson(response, 200, entry(route.segments()));
             case "list" -> {
                 Path directory = requireDirectory(route.segments());
                 List<Path> children = new ArrayList<>();
@@ -167,7 +149,7 @@ public final class LocalDirectoryProvider implements AutoCloseable {
                     segments.add(child.getFileName().toString());
                     entries.add(entry(segments));
                 }
-                sendJson(exchange, 200, Map.of("entries", entries));
+                sendJson(response, 200, Map.of("entries", entries));
             }
             case "get" -> {
                 Path file = safeExistingPath(route.segments());
@@ -175,11 +157,11 @@ public final class LocalDirectoryProvider implements AutoCloseable {
                     throw new ProviderException(409, "The requested item is not a file");
                 }
                 long size = Files.size(file);
-                Headers headers = exchange.getResponseHeaders();
-                headers.set("Content-Type", "application/octet-stream");
-                headers.set("Cache-Control", "no-store");
-                exchange.sendResponseHeaders(200, size);
-                try (InputStream input = Files.newInputStream(file); OutputStream output = exchange.getResponseBody()) {
+                response.setStatus(200);
+                response.setContentType("application/octet-stream");
+                response.setHeader("Cache-Control", "no-store");
+                response.setContentLengthLong(size);
+                try (InputStream input = Files.newInputStream(file); OutputStream output = response.getOutputStream()) {
                     input.transferTo(output);
                 }
             }
@@ -198,17 +180,17 @@ public final class LocalDirectoryProvider implements AutoCloseable {
                     Files.move(upload.file, target, StandardCopyOption.REPLACE_EXISTING);
                 }
                 upload.committed = true;
-                sendText(exchange, 200, revision(Files.readAttributes(target, BasicFileAttributes.class)));
+                sendText(response, 200, revision(Files.readAttributes(target, BasicFileAttributes.class)));
             }
             case "lock" -> {
                 String owner = singleString(body.bytes(), "owner");
                 entry(route.segments());
                 state.acquireLock(route.documentPath(), owner);
-                sendEmpty(exchange, 204);
+                sendEmpty(response, 204);
             }
             case "unlock" -> {
                 state.releaseLock(route.documentPath(), singleString(body.bytes(), "owner"));
-                sendEmpty(exchange, 204);
+                sendEmpty(response, 204);
             }
             case "mkdir" -> {
                 String name = childName(singleString(body.bytes(), "name"));
@@ -218,7 +200,7 @@ public final class LocalDirectoryProvider implements AutoCloseable {
                 } catch (FileAlreadyExistsException exception) {
                     throw new ProviderException(409, "An item already uses this name");
                 }
-                sendEmpty(exchange, 204);
+                sendEmpty(response, 204);
             }
             case "rename" -> {
                 if (route.segments().isEmpty()) {
@@ -232,7 +214,7 @@ public final class LocalDirectoryProvider implements AutoCloseable {
                     throw new ProviderException(409, "An item already uses this name");
                 }
                 Files.move(source, target);
-                sendEmpty(exchange, 204);
+                sendEmpty(response, 204);
             }
             case "delete" -> {
                 if (route.segments().isEmpty()) {
@@ -240,7 +222,7 @@ public final class LocalDirectoryProvider implements AutoCloseable {
                 }
                 state.requireUnlocked(route.documentPath());
                 Files.delete(safeExistingPath(route.segments()));
-                sendEmpty(exchange, 204);
+                sendEmpty(response, 204);
             }
             default -> throw new ProviderException(404, "Unknown storage operation");
         }
@@ -270,11 +252,11 @@ public final class LocalDirectoryProvider implements AutoCloseable {
         );
     }
 
-    private Route parseRoute(HttpExchange exchange) {
-        if (exchange.getRequestURI().getRawQuery() != null) {
+    private Route parseRoute(HttpServletRequest request) {
+        if (request.getQueryString() != null) {
             throw new ProviderException(400, "Query strings are not supported");
         }
-        String rawPath = exchange.getRequestURI().getRawPath();
+        String rawPath = request.getRequestURI();
         if (!rawPath.startsWith(PREFIX + "/")) throw new ProviderException(404, "Not found");
         String[] rawSegments = rawPath.substring(PREFIX.length() + 1).split("/", -1);
         for (String segment : rawSegments) {
@@ -286,7 +268,7 @@ public final class LocalDirectoryProvider implements AutoCloseable {
                 "info", "GET", "list", "GET", "get", "GET", "put", "PUT",
                 "lock", "POST", "unlock", "POST", "mkdir", "POST", "rename", "POST", "delete", "DELETE"
         ).get(operation);
-        if (!expectedMethod.equals(exchange.getRequestMethod())) {
+        if (!expectedMethod.equals(request.getMethod())) {
             throw new ProviderException(405, "Method not allowed");
         }
         List<String> segments = new ArrayList<>();
@@ -330,16 +312,16 @@ public final class LocalDirectoryProvider implements AutoCloseable {
         return current;
     }
 
-    private StagedBody stageBody(HttpExchange exchange) throws Exception {
-        rejectTransferEncoding(exchange);
-        long declared = contentLength(exchange, true);
+    private StagedBody stageBody(HttpServletRequest request) throws Exception {
+        rejectTransferEncoding(request);
+        long declared = contentLength(request, true);
         if (declared > config.maxDocumentBytes()) {
             throw new ProviderException(413, "The document exceeds the Provider size limit");
         }
         Path file = state.createStagingFile();
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         long written = 0;
-        try (InputStream input = exchange.getRequestBody(); OutputStream output = Files.newOutputStream(file)) {
+        try (InputStream input = request.getInputStream(); OutputStream output = Files.newOutputStream(file)) {
             byte[] buffer = new byte[64 * 1024];
             int read;
             while ((read = input.read(buffer)) >= 0) {
@@ -362,11 +344,11 @@ public final class LocalDirectoryProvider implements AutoCloseable {
         return new StagedBody(written, HexFormat.of().formatHex(digest.digest()), file);
     }
 
-    private Body readBody(HttpExchange exchange, int maximum) throws Exception {
-        rejectTransferEncoding(exchange);
-        long declared = contentLength(exchange, true);
+    private Body readBody(HttpServletRequest request, int maximum) throws Exception {
+        rejectTransferEncoding(request);
+        long declared = contentLength(request, true);
         if (declared > maximum) throw new ProviderException(413, "The request body is too large");
-        byte[] body = exchange.getRequestBody().readAllBytes();
+        byte[] body = request.getInputStream().readAllBytes();
         if (body.length != declared) {
             throw new ProviderException(400, "The request body does not match Content-Length");
         }
@@ -397,14 +379,14 @@ public final class LocalDirectoryProvider implements AutoCloseable {
         return value;
     }
 
-    private static void requireContentType(HttpExchange exchange, String expected) {
-        if (!expected.equals(header(exchange, "Content-Type"))) {
+    private static void requireContentType(HttpServletRequest request, String expected) {
+        if (!expected.equals(header(request, "Content-Type"))) {
             throw new ProviderException(415, "This operation requires " + expected);
         }
     }
 
-    private static long contentLength(HttpExchange exchange, boolean required) {
-        String value = header(exchange, "Content-Length");
+    private static long contentLength(HttpServletRequest request, boolean required) {
+        String value = header(request, "Content-Length");
         if (value == null) {
             if (required) throw new ProviderException(411, "Content-Length is required");
             return 0;
@@ -418,35 +400,40 @@ public final class LocalDirectoryProvider implements AutoCloseable {
         }
     }
 
-    private static void rejectTransferEncoding(HttpExchange exchange) {
-        if (header(exchange, "Transfer-Encoding") != null) {
+    private static void rejectTransferEncoding(HttpServletRequest request) {
+        if (header(request, "Transfer-Encoding") != null) {
             throw new ProviderException(400, "Chunked request bodies are not supported");
         }
     }
 
-    private static String header(HttpExchange exchange, String name) {
-        return exchange.getRequestHeaders().getFirst(name);
+    private static String header(HttpServletRequest request, String name) {
+        return request.getHeader(name);
     }
 
-    private static void sendJson(HttpExchange exchange, int status, Object value) throws IOException {
+    private static void sendJson(HttpServletResponse response, int status, Object value) throws IOException {
         byte[] body = JSON.writeValueAsBytes(value);
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-        exchange.getResponseHeaders().set("Cache-Control", "no-store");
-        exchange.sendResponseHeaders(status, body.length);
-        exchange.getResponseBody().write(body);
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentLength(body.length);
+        response.getOutputStream().write(body);
     }
 
-    private static void sendText(HttpExchange exchange, int status, String text) throws IOException {
+    private static void sendText(HttpServletResponse response, int status, String text) throws IOException {
         byte[] body = text.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
-        exchange.getResponseHeaders().set("Cache-Control", "no-store");
-        exchange.sendResponseHeaders(status, body.length);
-        exchange.getResponseBody().write(body);
+        response.setStatus(status);
+        response.setContentType("text/plain");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentLength(body.length);
+        response.getOutputStream().write(body);
     }
 
-    private static void sendEmpty(HttpExchange exchange, int status) throws IOException {
-        exchange.getResponseHeaders().set("Cache-Control", "no-store");
-        exchange.sendResponseHeaders(status, -1);
+    private static void sendEmpty(HttpServletResponse response, int status) {
+        response.setStatus(status);
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentLength(0);
     }
 
     private static String revision(BasicFileAttributes attributes) {

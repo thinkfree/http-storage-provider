@@ -34,7 +34,9 @@ cd examples/java
 mvn test
 
 cd ../python
-python3 -m unittest -v
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m unittest -v
 ```
 
 Also build the container when changing the root Node.js server or Dockerfile:

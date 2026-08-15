@@ -83,12 +83,12 @@ See the production [connection guide](https://www.developers.thinkfree.com/docs/
 and [protocol reference](https://www.developers.thinkfree.com/docs/docker/http-storage-api/)
 for the Office-side workflow.
 
-## Run the Java Provider
+## Run the Java Spring Boot Provider
 
-The Java example is a separate, complete server with the same tracked Office
-documents below [`examples/java/storage/samples`](examples/java/storage/samples).
-Stop the Node.js Provider first because both examples use port `8080` by
-default.
+The Java example is a separate, complete Spring Boot server with the same
+tracked Office documents below
+[`examples/java/storage/samples`](examples/java/storage/samples). Stop the
+Node.js Provider first because both examples use port `8080` by default.
 
 Prerequisites: Java 17 or later, Maven 3.9 or later, and OpenSSL.
 
@@ -106,15 +106,18 @@ Read the [Java Provider guide](docs/java.md) for direct Maven commands and code
 ownership boundaries. Read the [Node.js Provider guide](docs/nodejs.md) for the
 root implementation.
 
-## Run the Python Provider
+## Run the Python FastAPI Provider
 
-The dependency-free Python 3.12 example has the same tracked Office documents
-below [`examples/python/storage/samples`](examples/python/storage/samples).
-Stop another Provider using port `8080`, then run:
+The Python 3.12 example uses FastAPI and Uvicorn and has the same tracked Office
+documents below
+[`examples/python/storage/samples`](examples/python/storage/samples). Stop
+another Provider using port `8080`, then run:
+
+Prerequisites: Python 3.12 or later with `venv` and `pip`.
 
 ```bash
 cd examples/python
-python3 run.py
+./run.sh
 ```
 
 The first run creates an ignored local configuration and prints the adapter
@@ -150,10 +153,10 @@ path traversal, and symbolic links are not part of this contract.
   replay storage, paths, locks, staging, TLS, and multi-replica requirements.
 - [Node.js Provider guide](docs/nodejs.md): source map, configuration, tests,
   and Docker use.
-- [Java Provider guide](docs/java.md): executable JAR, configuration, tests,
-  and framework integration.
-- [Python Provider guide](docs/python.md): dependency-free startup, source map,
-  and tests.
+- [Java Provider guide](docs/java.md): Spring Boot application, executable JAR,
+  configuration, and tests.
+- [Python Provider guide](docs/python.md): FastAPI and Uvicorn startup, source
+  map, and tests.
 - [Bundled Office samples](docs/sample-documents.md): origin, paths, and expected
   SHA-256 values.
 - [Troubleshooting](docs/troubleshooting.md): symptom-first checks and safe
@@ -176,6 +179,7 @@ npm run check
 cd examples/java
 mvn test
 cd ../python
+python3 -m pip install -r requirements.txt
 python3 -m unittest -v
 ```
 

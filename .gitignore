@@ -16,6 +16,7 @@ examples/python/storage/*
 !examples/python/storage/samples/
 !examples/python/storage/samples/**
 examples/python/.provider-config.json
+examples/python/.venv/
 __pycache__/
 coverage/
 target/

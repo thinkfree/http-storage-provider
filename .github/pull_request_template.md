@@ -14,6 +14,6 @@
 
 - [ ] `npm run check`
 - [ ] `mvn test` in `examples/java`
-- [ ] `python3 -m unittest -v` in `examples/python`
+- [ ] `.venv/bin/python -m unittest -v` in `examples/python`
 - [ ] Sample OOXML hashes and ZIP structures verified
 - [ ] No secret, JWT, credential, or customer document added
