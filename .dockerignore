@@ -1,0 +1,9 @@
+.git
+.github
+.env
+.idea
+.vscode
+node_modules
+coverage
+target
+*.log

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TFO HTTP Storage list response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {"$ref": "entry.schema.json"}
+    }
+  }
+}

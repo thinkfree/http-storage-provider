@@ -1,0 +1,3 @@
+This file is stored in the local directory used by the Python Provider example.
+
+Open, edit, and save it through Thinkfree Office to verify the complete storage lifecycle.
