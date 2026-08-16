@@ -37,6 +37,13 @@ export function createStorageRouter({
         stateStore,
       );
       await requestVerifier.verify(request, route, requestBody);
+      // Capability information is returned only after the body, JWT, signed
+      // request fields, and replay ID have been verified. Keep this branch
+      // before storage access so PUT_NOT_SUPPORTED can never replace a file.
+      if (config.unsupportedOperations?.has(route.name)) {
+        sendOperationNotSupported(response, route.name);
+        return;
+      }
       await executeOperation(response, route, requestBody, storageService);
     } finally {
       if (requestBody?.stagingFile && !requestBody.committed) {
@@ -47,6 +54,12 @@ export function createStorageRouter({
     }
   });
   return router;
+}
+
+function sendOperationNotSupported(response, operation) {
+  // CloudOffice recognizes only HTTP 501 plus this exact single-field JSON
+  // object. Extra fields and mismatched operation codes are normal failures.
+  sendJson(response, { code: `${operation.toUpperCase()}_NOT_SUPPORTED` }, 501);
 }
 
 async function readRequestBody(request, bodyKind, config, stateStore) {
@@ -209,8 +222,17 @@ async function executeOperation(response, route, body, storageService) {
   }
 }
 
-function sendJson(response, value) {
-  response.status(200).set("Cache-Control", "no-store").json(value);
+function sendJson(response, value, statusCode = 200) {
+  // INFO/LIST are small bounded metadata responses. Serialize once so the
+  // Provider can publish the exact UTF-8 byte length instead of relying on
+  // chunked transfer. Office rejects missing or ambiguous response framing.
+  const body = Buffer.from(JSON.stringify(value));
+  response.status(statusCode).set({
+    "Content-Type": "application/json",
+    "Content-Length": body.length,
+    "Cache-Control": "no-store",
+  });
+  response.end(body);
 }
 
 function parseSingleField(bytes, field) {

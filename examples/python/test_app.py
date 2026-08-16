@@ -14,6 +14,7 @@ from http.client import HTTPConnection
 from pathlib import Path
 
 import uvicorn
+from pydantic import ValidationError
 
 from app.config import Settings
 from app.main import create_app
@@ -76,6 +77,9 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         (self.root / "contracts" / "sample document.docx").write_text(
             "original", encoding="utf-8"
         )
+        self.start_server("")
+
+    def start_server(self, unsupported_operations: str) -> None:
         application = create_app(
             Settings(
                 host="127.0.0.1",
@@ -85,6 +89,7 @@ class FastApiProviderApplicationTest(unittest.TestCase):
                 adapter=ADAPTER,
                 request_jwt_secret=SECRET,
                 max_document_bytes=1024 * 1024,
+                unsupported_operations=unsupported_operations,
             )
         )
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -117,6 +122,12 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         self.socket.close()
         self.temporary.cleanup()
 
+    def restart_server(self, unsupported_operations: str) -> None:
+        self.server.should_exit = True
+        self.thread.join(timeout=5)
+        self.socket.close()
+        self.start_server(unsupported_operations)
+
     def send(
         self,
         method: str,
@@ -147,16 +158,19 @@ class FastApiProviderApplicationTest(unittest.TestCase):
 
     def test_complete_storage_lifecycle(self) -> None:
         file = "contracts/sample%20document.docx"
-        status, _, body = self.send("GET", f"/tfo-storage/v1/{file}/info")
+        status, headers, body = self.send("GET", f"/tfo-storage/v1/{file}/info")
         self.assertEqual(200, status)
+        self.assert_fixed_response(headers, body, "application/json")
         self.assertEqual("contracts/sample document.docx", json.loads(body)["path"])
 
-        status, _, body = self.send("GET", "/tfo-storage/v1/contracts/list")
+        status, headers, body = self.send("GET", "/tfo-storage/v1/contracts/list")
         self.assertEqual(200, status)
+        self.assert_fixed_response(headers, body, "application/json")
         self.assertEqual("sample document.docx", json.loads(body)["entries"][0]["name"])
 
         status, headers, body = self.send("GET", f"/tfo-storage/v1/{file}/get")
         self.assertEqual(200, status)
+        self.assert_fixed_response(headers, body, "application/octet-stream")
         self.assertEqual("8", headers["content-length"])
         self.assertEqual(b"original", body)
 
@@ -209,6 +223,14 @@ class FastApiProviderApplicationTest(unittest.TestCase):
             204, self.send("DELETE", "/tfo-storage/v1/contracts/archive/delete")[0]
         )
 
+    def assert_fixed_response(
+        self, headers: dict[str, str], body: bytes, content_type: str
+    ) -> None:
+        self.assertNotIn("transfer-encoding", headers)
+        self.assertNotIn("content-encoding", headers)
+        self.assertEqual(content_type, headers["content-type"].split(";", 1)[0])
+        self.assertEqual(str(len(body)), headers["content-length"])
+
     def test_replay_and_path_traversal_are_rejected(self) -> None:
         path = "/tfo-storage/v1/contracts/sample%20document.docx/info"
         token = sign("GET", path)
@@ -225,6 +247,98 @@ class FastApiProviderApplicationTest(unittest.TestCase):
                 "application/json",
             )[0],
         )
+
+    def test_declares_every_optional_operation_unsupported_only_after_authentication(
+        self,
+    ) -> None:
+        self.restart_server("list,put,lock,unlock,mkdir,rename,delete")
+        cases = (
+            ("LIST", "GET", "/tfo-storage/v1/contracts/list", None, None),
+            (
+                "PUT",
+                "PUT",
+                "/tfo-storage/v1/contracts/new.docx/put",
+                b"must-not-be-saved",
+                "application/octet-stream",
+            ),
+            (
+                "LOCK",
+                "POST",
+                "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+                b'{"owner":"office-runtime-1"}',
+                "application/json",
+            ),
+            (
+                "UNLOCK",
+                "POST",
+                "/tfo-storage/v1/contracts/sample%20document.docx/unlock",
+                b'{"owner":"office-runtime-1"}',
+                "application/json",
+            ),
+            (
+                "MKDIR",
+                "POST",
+                "/tfo-storage/v1/contracts/mkdir",
+                b'{"name":"must-not-exist"}',
+                "application/json",
+            ),
+            (
+                "RENAME",
+                "POST",
+                "/tfo-storage/v1/contracts/sample%20document.docx/rename",
+                b'{"name":"must-not-exist.docx"}',
+                "application/json",
+            ),
+            (
+                "DELETE",
+                "DELETE",
+                "/tfo-storage/v1/contracts/sample%20document.docx/delete",
+                None,
+                None,
+            ),
+        )
+
+        for operation, method, path, request_body, content_type in cases:
+            status, headers, response_body = self.send(
+                method, path, request_body, content_type
+            )
+            self.assertEqual(501, status, operation)
+            self.assertTrue(
+                headers["content-type"].startswith("application/json"), operation
+            )
+            self.assertEqual(
+                {"code": f"{operation}_NOT_SUPPORTED"}, json.loads(response_body)
+            )
+
+        self.assertEqual(
+            "original",
+            (self.root / "contracts" / "sample document.docx").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertFalse((self.root / "contracts" / "new.docx").exists())
+        self.assertFalse((self.root / "contracts" / "must-not-exist").exists())
+        self.assertEqual(
+            401,
+            self.send(
+                "GET",
+                "/tfo-storage/v1/contracts/list",
+                token="not-a-jwt",
+            )[0],
+        )
+
+    def test_configuration_keeps_mandatory_operations_and_lock_pair_consistent(
+        self,
+    ) -> None:
+        common = {
+            "root": self.root,
+            "adapter": ADAPTER,
+            "request_jwt_secret": SECRET,
+        }
+        with self.assertRaises(ValidationError):
+            Settings(**common, unsupported_operations="get")
+        with self.assertRaises(ValidationError):
+            Settings(**common, unsupported_operations="lock")
 
 
 if __name__ == "__main__":

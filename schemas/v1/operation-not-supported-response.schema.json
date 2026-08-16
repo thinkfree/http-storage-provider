@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TFO HTTP Storage operation-not-supported response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code"],
+  "properties": {
+    "code": {
+      "enum": [
+        "LIST_NOT_SUPPORTED",
+        "PUT_NOT_SUPPORTED",
+        "LOCK_NOT_SUPPORTED",
+        "UNLOCK_NOT_SUPPORTED",
+        "MKDIR_NOT_SUPPORTED",
+        "RENAME_NOT_SUPPORTED",
+        "DELETE_NOT_SUPPORTED"
+      ]
+    }
+  }
+}

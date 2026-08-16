@@ -112,6 +112,14 @@ async def storage_request(
             body.length,
             body.sha256,
         )
+        # Capability selection belongs after body/JWT/replay verification and
+        # before storage access. In particular, PUT_NOT_SUPPORTED must never
+        # create or replace the destination file.
+        if storage.settings.is_operation_unsupported(route.operation.path_token):
+            return fixed_json_response(
+                {"code": f"{route.operation.path_token.upper()}_NOT_SUPPORTED"},
+                status_code=501,
+            )
         return execute(route, body, storage)
     finally:
         body.close()
@@ -264,7 +272,18 @@ def parse_model(model_type: type[Model], body: bytes | None, field: str) -> Mode
 
 
 def model_response(value: BaseModel) -> JSONResponse:
-    return JSONResponse(value.model_dump(mode="json", by_alias=True), headers=NO_STORE)
+    return fixed_json_response(value.model_dump(mode="json", by_alias=True))
+
+
+def fixed_json_response(value: object, status_code: int = 200) -> JSONResponse:
+    # Starlette's JSONResponse renders the complete bounded metadata body at
+    # construction time and adds its exact UTF-8 Content-Length. Keep INFO,
+    # LIST, and capability JSON on this path; FileResponse does the same from
+    # the document stat for large GET streams.
+    response = JSONResponse(value, status_code=status_code, headers=NO_STORE)
+    if "content-length" not in response.headers:
+        raise RuntimeError("JSON response must have a fixed Content-Length")
+    return response
 
 
 def require_content_type(request: Request, expected: str) -> None:

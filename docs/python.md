@@ -32,7 +32,7 @@ Stop another example server using port `8080` before starting this one.
 .venv/bin/python -m unittest -v
 ```
 
-The expected result is two passing tests. The suite exercises all nine storage
+The expected result is four passing tests. The suite exercises all nine storage
 operations against real files, a complete save, fixed download length, replay
 rejection, traversal rejection, and root protection.
 
@@ -54,3 +54,9 @@ injection layout:
 Production integrations can replace `LocalDirectoryStorageService` while
 retaining the router, Pydantic models, security verifier, and exception
 handlers.
+
+The router uses `JSONResponse` for bounded INFO/LIST models; Starlette renders
+the bytes at construction and publishes their exact `Content-Length`. GET uses
+`FileResponse`, which determines the original file size before streaming. A
+replacement FastAPI response must preserve those fixed-length semantics and
+must not return an unbounded `StreamingResponse` with chunked transfer.

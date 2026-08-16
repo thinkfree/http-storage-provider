@@ -54,6 +54,12 @@ filesystem as the destination when relying on atomic rename. Monitor free
 space, stale staging files, failed cleanup, and write latency. Do not replace
 the streaming loop with an unbounded byte array.
 
+For responses, serialize only the bounded INFO/LIST metadata in memory and set
+its exact UTF-8 `Content-Length`. Resolve a document's original size before GET
+and stream exactly that many bytes with `application/octet-stream`. Do not gzip
+or use chunked transfer for INFO, LIST, or GET; large GET bodies must stay
+streamed and must never be assembled into one byte array.
+
 ## Coordinate locks and replay across replicas
 
 The example state uses atomic files below the local storage root. A production

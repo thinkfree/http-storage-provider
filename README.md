@@ -130,8 +130,8 @@ All three servers implement the complete Provider operation set:
 
 | Operation | Result |
 | --- | --- |
-| `info` | Returns strict JSON metadata for a file, directory, or Provider root. |
-| `list` | Returns up to 10,000 direct children and hides Provider state files. |
+| `info` | Returns strict JSON metadata with an exact fixed `Content-Length`. |
+| `list` | Returns up to 10,000 direct children with an exact fixed `Content-Length`. |
 | `get` | Streams the original file with a fixed `Content-Length`. |
 | `put` | Stages, hashes, verifies, and atomically replaces the complete file. |
 | `lock` / `unlock` | Keeps owner-aware locks and rejects conflicting owners. |
@@ -144,6 +144,15 @@ lifetime, unique `jti`, adapter identity, actual HTTP method, raw encoded path,
 content type, body length, and SHA-256 before accessing document storage.
 Query strings, redirects, cookies, arbitrary forwarding headers, chunked PUT,
 path traversal, and symbolic links are not part of this contract.
+Successful INFO, LIST, and GET responses also must not use chunked transfer or
+content encoding. Providers must determine and publish the exact response byte
+length before streaming; GET can still stream arbitrarily large documents.
+
+If a customer implementation intentionally omits an operation, it can return
+the protocol's authenticated `501` response with the exact single-field code,
+such as `{"code":"LIST_NOT_SUPPORTED"}`. The complete examples support all
+nine operations by default; set `TFO_STORAGE_UNSUPPORTED_OPERATIONS=list` (or a
+comma-separated operation list) to run and test the same capability behavior.
 
 ## Documentation
 

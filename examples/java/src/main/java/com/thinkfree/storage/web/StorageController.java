@@ -84,16 +84,30 @@ public class StorageController {
                     requestBody.length(),
                     requestBody.sha256()
             );
+            // Do not move capability selection above verification. Even an
+            // unsupported route authenticates the complete signed request,
+            // and PUT_NOT_SUPPORTED must not touch the destination document.
+            if (properties.unsupportedOperations().contains(
+                    route.operation().name().toLowerCase(java.util.Locale.ROOT))) {
+                return operationNotSupported(route.operation());
+            }
             return execute(route, requestBody);
         } finally {
             requestBody.close();
         }
     }
 
+    private ResponseEntity<?> operationNotSupported(StorageOperation operation) throws IOException {
+        // CloudOffice accepts only 501 application/json with this exact
+        // operation-specific single-field object as a capability declaration.
+        return jsonResponse(HttpStatus.NOT_IMPLEMENTED,
+                java.util.Map.of("code", operation.name() + "_NOT_SUPPORTED"));
+    }
+
     private ResponseEntity<?> execute(StorageRoute route, RequestBody body) throws IOException {
         return switch (route.operation()) {
-            case INFO -> noStore(ResponseEntity.ok()).body(storageService.info(route.path()));
-            case LIST -> noStore(ResponseEntity.ok()).body(storageService.list(route.path()));
+            case INFO -> jsonResponse(HttpStatus.OK, storageService.info(route.path()));
+            case LIST -> jsonResponse(HttpStatus.OK, storageService.list(route.path()));
             case GET -> download(route);
             case PUT -> {
                 String revision = storageService.save(route.path(), body.stagedFile());
@@ -131,6 +145,18 @@ public class StorageController {
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .contentLength(download.contentLength())
                 .body(download.resource());
+    }
+
+    private ResponseEntity<byte[]> jsonResponse(HttpStatus status, Object value) throws IOException {
+        // Spring's object converter may stream JSON without publishing a fixed
+        // response length. Rendering this bounded metadata once makes the
+        // protocol's exact Content-Length explicit for INFO and LIST.
+        byte[] body = objectMapper.writeValueAsBytes(value);
+        return ResponseEntity.status(status)
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.APPLICATION_JSON)
+                .contentLength(body.length)
+                .body(body);
     }
 
     private RequestBody readRequestBody(HttpServletRequest request, StorageOperation operation)

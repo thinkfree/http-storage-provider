@@ -51,10 +51,16 @@ protocol paths cannot select it.
 | `TFO_STORAGE_HOST` | No | `127.0.0.1` | Listen address. Use a network policy when changing it. |
 | `TFO_STORAGE_PORT` | No | `8080` | Listen port. |
 | `TFO_STORAGE_MAX_DOCUMENT_BYTES` | No | `536870912` | Example Provider limit, not a protocol-wide Office limit. |
+| `TFO_STORAGE_UNSUPPORTED_OPERATIONS` | No | empty | Comma-separated optional operations to demonstrate authenticated `501` capability responses. INFO and GET cannot be disabled; LOCK and UNLOCK must be paired. |
 
 Do not commit `.env` or log the request JWT secret. A container, Pod, or remote
 Office server cannot reach the Provider through its own `127.0.0.1`; configure
 an address reachable from that runtime.
+
+`storage-router.mjs` serializes the bounded INFO/LIST JSON once and sends the
+same buffer with its exact byte length. GET obtains the file size before
+headers and pipelines the file stream with that fixed `Content-Length`. Do not
+replace either response with Express chunked streaming.
 
 ## Run the tests
 
@@ -62,7 +68,7 @@ an address reachable from that runtime.
 npm test
 ```
 
-The expected result is four passing tests. They cover every operation, a real
+The expected result is six passing tests. They cover every operation, a real
 save to disk, fixed download length, replay rejection, body digest mismatch,
 root deletion, traversal, and symbolic-link containment.
 

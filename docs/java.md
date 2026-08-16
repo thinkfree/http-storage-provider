@@ -45,6 +45,13 @@ environment variables in the same way. Applications that already use Spring
 Boot can provide the `tfo.storage.*` properties directly in
 `application.properties` or `application.yaml`.
 
+`StorageController` serializes bounded INFO/LIST DTOs with Jackson to a byte
+array, sets that array's exact `Content-Length`, and returns the same bytes.
+GET uses a Spring `Resource` with the file's known original length, so large
+documents remain streamed. A custom Spring implementation must not return an
+unknown-length `StreamingResponseBody` or rely on chunked transfer for these
+three operations.
+
 ## Run the tests and package the server
 
 ```bash
@@ -52,7 +59,7 @@ mvn test
 mvn package
 ```
 
-The expected result is two passing lifecycle/security tests and this executable
+The expected result is four passing lifecycle/security tests and this executable
 artifact:
 
 ```text

@@ -83,22 +83,119 @@ atomic store shared by every replica.
 
 ## Implement the endpoint catalog
 
-| Role | Method | Path suffix | Request | Success response |
-| --- | --- | --- | --- | --- |
-| Read metadata | `GET` | `/{path}/info` | No body | JSON entry; a missing item is `404`. |
-| List direct children | `GET` | `/{path}/list` | No body | JSON object with `entries`. |
-| Download | `GET` | `/{path}/get` | No body | Raw bytes and accurate `Content-Length`. |
-| Save | `PUT` | `/{path}/put` | Raw bytes and fixed `Content-Length` | Optional revision or result text. |
-| Lock | `POST` | `/{path}/lock` | `{"owner":"..."}` | Any `2xx`. |
-| Unlock | `POST` | `/{path}/unlock` | `{"owner":"..."}` | Any `2xx`. |
-| Create directory | `POST` | `/{parent}/mkdir` | `{"name":"..."}` | Any `2xx`. |
-| Rename | `POST` | `/{path}/rename` | `{"name":"..."}` | Any `2xx`. |
-| Delete | `DELETE` | `/{path}/delete` | No body | Any `2xx`. |
+| Role | Required | Method | Path suffix | Request | Success response |
+| --- | --- | --- | --- | --- | --- |
+| Read metadata | Yes | `GET` | `/{path}/info` | No body | JSON entry with fixed `Content-Length`; a missing item is `404`. |
+| List direct children | No | `GET` | `/{path}/list` | No body | JSON object with `entries` and fixed `Content-Length`. |
+| Download | Yes | `GET` | `/{path}/get` | No body | Raw bytes with fixed `Content-Length`. |
+| Save | No | `PUT` | `/{path}/put` | Raw bytes and fixed `Content-Length` | Optional revision or result text. |
+| Lock | No, paired with unlock | `POST` | `/{path}/lock` | `{"owner":"..."}` | Any `2xx`. |
+| Unlock | No, paired with lock | `POST` | `/{path}/unlock` | `{"owner":"..."}` | Any `2xx`. |
+| Create directory | No | `POST` | `/{parent}/mkdir` | `{"name":"..."}` | Any `2xx`. |
+| Rename | No | `POST` | `/{path}/rename` | `{"name":"..."}` | Any `2xx`. |
+| Delete | No | `DELETE` | `/{path}/delete` | No body | Any `2xx`. |
 
 `PUT` uses `application/octet-stream`. The four JSON operations use
 `application/json` and exactly the documented one-field object. The packaged
 adapter sends a fixed `Content-Length`; chunked request transfer is not part of
 the protocol.
+
+### Frame successful read responses with a fixed length
+
+Every successful `info`, `list`, and `get` response must include exactly one
+decimal `Content-Length` whose value is the exact number of response-body
+bytes. Do not send `Transfer-Encoding: chunked` or `Content-Encoding`; Office
+does not buffer an unknown or compressed body to discover its final size.
+
+`info` and `list` use `application/json` UTF-8 bodies and are limited by the
+packaged adapter to 10 MiB. Serialize the bounded JSON once, calculate its
+UTF-8 byte length, set `Content-Length`, and then send those same bytes. `get`
+uses `application/octet-stream`. Determine the stored object's original size
+before writing headers, then stream exactly that many bytes. The protocol does
+not impose a document-size maximum on GET, so a multi-gigabyte document must
+remain a stream rather than becoming a byte array.
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 184
+Cache-Control: no-store
+```
+
+A missing, duplicate, negative, non-decimal, or oversized length; chunked or
+compressed transfer; wrong media type; early EOF; and a body that exceeds its
+declared length are Provider errors. Office fails only that operation, closes
+the upstream response, and keeps the adapter service available for later
+requests. Error responses and the authenticated `501` capability response
+remain bounded, but only successful INFO/LIST/GET responses use this mandatory
+fixed-read contract.
+
+### Declare that an operation is not implemented
+
+A Provider may intentionally omit one or more operations. It must parse the
+request body when applicable and authenticate the complete signed request
+before returning this exact capability response. This ordering prevents an
+unauthenticated caller from probing Provider capabilities. The example is for
+`list`:
+
+```http
+HTTP/1.1 501 Not Implemented
+Content-Type: application/json
+```
+
+```json
+{
+  "code": "LIST_NOT_SUPPORTED"
+}
+```
+
+Use the exact current operation name followed by `_NOT_SUPPORTED`:
+
+| Operation | Code |
+| --- | --- |
+| `list` | `LIST_NOT_SUPPORTED` |
+| `put` | `PUT_NOT_SUPPORTED` |
+| `lock` | `LOCK_NOT_SUPPORTED` |
+| `unlock` | `UNLOCK_NOT_SUPPORTED` |
+| `mkdir` | `MKDIR_NOT_SUPPORTED` |
+| `rename` | `RENAME_NOT_SUPPORTED` |
+| `delete` | `DELETE_NOT_SUPPORTED` |
+
+`info` and `get` are mandatory because Office needs them to identify and open
+a document. A Provider cannot declare either operation unsupported; any `501`
+from those routes remains an operation failure regardless of its body.
+
+`lock` and `unlock` form one optional capability. Implement both or declare
+both unsupported. A Provider without locking returns `LOCK_NOT_SUPPORTED` and
+`UNLOCK_NOT_SUPPORTED` from the respective authenticated routes; it must not
+pretend to acquire a lock. Office treats those exact responses as successful
+no-ops so the document can still open and close. This means concurrent writers
+use the backing store's last-write/conflict policy. When locking is implemented,
+an owner conflict (`409`), authorization failure, or storage outage remains a
+real operation failure and must never be converted to a capability response.
+
+Office recognizes an operation as unsupported only for this exact status,
+media type, and single-field JSON body whose code matches the requested
+operation. A `404`, empty or non-JSON body, extra field, mismatched code,
+authentication failure, timeout, or another `501` remains an operation error.
+An empty directory supports listing and returns `200` with `{"entries":[]}`.
+The exact bodies are published in the
+[`operation-not-supported-response` schema](../schemas/v1/operation-not-supported-response.schema.json).
+
+The reference servers remain complete by default. To demonstrate an omitted
+operation, set a comma-separated list before startup, for example
+`TFO_STORAGE_UNSUPPORTED_OPERATIONS=list,rename`. Declare `lock,unlock`
+together if locking is omitted. Each server checks this only
+after JWT verification and returns the exact response without accessing the
+backing storage. In application code the essential boundary is:
+
+```text
+route = parse_and_read_request()
+verify_signed_request(route, body)
+if configured_as_unsupported(route.operation):
+    return 501 application/json {"code":"<OPERATION>_NOT_SUPPORTED"}
+execute_storage_operation()
+```
 
 ## Return metadata JSON
 
@@ -142,7 +239,8 @@ are rejected by the packaged adapter. Use the Draft 2020-12 schemas in
 
 ## Preserve operation semantics
 
-- `get` streams the exact stored bytes and reports their original size.
+- `get` resolves the original size before sending headers, publishes that
+  exact `Content-Length`, and streams the same number of stored bytes.
 - `put` receives the complete assembled Office file. Stage and hash it before
   verification, then replace the target only after authorization and complete
   length validation.
@@ -155,7 +253,8 @@ are rejected by the packaged adapter. Use the Draft 2020-12 schemas in
 
 ## Return safe errors
 
-Any non-`2xx` response fails the Office operation. `info` uses `404` for a
+Except for an exact authenticated `<OPERATION>_NOT_SUPPORTED` capability response,
+any non-`2xx` response fails the Office operation. `info` uses `404` for a
 missing item. These status codes give the administrator an actionable category:
 
 | Status | Use |
