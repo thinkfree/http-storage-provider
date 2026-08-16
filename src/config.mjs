@@ -1,6 +1,7 @@
 import path from "node:path";
 
 const ADAPTER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+export const MAX_DOCUMENT_BYTES = 300 * 1024 * 1024;
 // INFO and GET are intentionally absent: Office cannot identify or open a
 // document without them, so a Provider is never allowed to disable them.
 const OPERATIONS = new Set([
@@ -72,9 +73,9 @@ export function loadConfig(environment = process.env) {
     unsupportedOperations,
     maxDocumentBytes: parseInteger(
       "TFO_STORAGE_MAX_DOCUMENT_BYTES",
-      environment.TFO_STORAGE_MAX_DOCUMENT_BYTES || "536870912",
+      environment.TFO_STORAGE_MAX_DOCUMENT_BYTES || String(MAX_DOCUMENT_BYTES),
       1,
-      Number.MAX_SAFE_INTEGER,
+      MAX_DOCUMENT_BYTES,
     ),
   });
 }

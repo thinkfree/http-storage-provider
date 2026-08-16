@@ -281,6 +281,10 @@ def fixed_json_response(value: object, status_code: int = 200) -> JSONResponse:
     # LIST, and capability JSON on this path; FileResponse does the same from
     # the document stat for large GET streams.
     response = JSONResponse(value, status_code=status_code, headers=NO_STORE)
+    if len(response.body) > 5 * 1024 * 1024:
+        raise StorageError(
+            413, "The metadata response exceeds the 5 MiB protocol limit"
+        )
     if "content-length" not in response.headers:
         raise RuntimeError("JSON response must have a fixed Content-Length")
     return response

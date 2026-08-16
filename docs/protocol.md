@@ -107,13 +107,14 @@ decimal `Content-Length` whose value is the exact number of response-body
 bytes. Do not send `Transfer-Encoding: chunked` or `Content-Encoding`; Office
 does not buffer an unknown or compressed body to discover its final size.
 
-`info` and `list` use `application/json` UTF-8 bodies and are limited by the
-packaged adapter to 10 MiB. Serialize the bounded JSON once, calculate its
+`info` and `list` use `application/json` UTF-8 bodies and are each limited by the
+packaged adapter to 5 MiB. Serialize the bounded JSON once, calculate its
 UTF-8 byte length, set `Content-Length`, and then send those same bytes. `get`
 uses `application/octet-stream`. Determine the stored object's original size
-before writing headers, then stream exactly that many bytes. The protocol does
-not impose a document-size maximum on GET, so a multi-gigabyte document must
-remain a stream rather than becoming a byte array.
+before writing headers, then stream exactly that many bytes. File metadata,
+GET response length, and PUT request length have a protocol hard gate of
+300 MiB (314,572,800 bytes). A Provider may configure a smaller tenant or
+deployment limit, but must not advertise or transfer a larger document.
 
 ```http
 HTTP/1.1 200 OK

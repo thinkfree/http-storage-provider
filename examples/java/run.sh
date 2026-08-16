@@ -15,7 +15,7 @@ if [ ! -f "$CONFIGURATION_FILE" ]; then
     echo 'TFO_STORAGE_ROOT_NAME=Documents'
     echo 'TFO_STORAGE_ADAPTER=local-directory-java'
     echo "TFO_STORAGE_REQUEST_JWT_SECRET=$SECRET"
-    echo 'TFO_STORAGE_MAX_DOCUMENT_BYTES=536870912'
+    echo 'TFO_STORAGE_MAX_DOCUMENT_BYTES=314572800'
   } > "$CONFIGURATION_FILE"
   mkdir -p storage
   echo 'Created an ignored local configuration in examples/java/.env.java.'

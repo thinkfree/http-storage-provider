@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     root_name: str = Field(default="Documents", min_length=1)
     adapter: str
     request_jwt_secret: str
-    max_document_bytes: int = Field(default=536_870_912, gt=0)
+    max_document_bytes: int = Field(default=314_572_800, gt=0, le=314_572_800)
     unsupported_operations: str = ""
 
     @field_validator("root")

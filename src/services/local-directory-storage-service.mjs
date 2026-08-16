@@ -41,6 +41,12 @@ export class LocalDirectoryStorageService {
     if (!metadata.isFile() && !metadata.isDirectory()) {
       throw new StorageError(403, "This storage item type is not supported");
     }
+    if (metadata.isFile() && metadata.size > this.config.maxDocumentBytes) {
+      throw new StorageError(
+        413,
+        "The document exceeds the Provider size limit",
+      );
+    }
     const documentPath = segments.join("/");
     const lock = await this.stateStore.currentLock(documentPath);
     return {
@@ -80,6 +86,11 @@ export class LocalDirectoryStorageService {
     const metadata = await lstat(file);
     if (!metadata.isFile())
       throw new StorageError(409, "The requested item is not a file");
+    if (metadata.size > this.config.maxDocumentBytes)
+      throw new StorageError(
+        413,
+        "The document exceeds the Provider size limit",
+      );
     return { stream: createReadStream(file), contentLength: metadata.size };
   }
 

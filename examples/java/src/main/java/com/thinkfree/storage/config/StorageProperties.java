@@ -22,6 +22,7 @@ public record StorageProperties(
         @Positive long maxDocumentBytes,
         Set<String> unsupportedOperations
 ) {
+    public static final long MAX_DOCUMENT_BYTES = 300L * 1024 * 1024;
     private static final Pattern ADAPTER = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
     // INFO and GET are mandatory protocol operations and therefore cannot be
     // configured as unsupported.
@@ -30,6 +31,10 @@ public record StorageProperties(
 
     public StorageProperties {
         root = root.toAbsolutePath().normalize();
+        if (maxDocumentBytes > MAX_DOCUMENT_BYTES) {
+            throw new IllegalArgumentException(
+                    "TFO_STORAGE_MAX_DOCUMENT_BYTES must not exceed " + MAX_DOCUMENT_BYTES);
+        }
         if (!ADAPTER.matcher(adapter).matches()) {
             throw new IllegalArgumentException("TFO_STORAGE_ADAPTER contains unsupported characters");
         }

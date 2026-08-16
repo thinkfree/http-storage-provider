@@ -398,6 +398,47 @@ test("configuration keeps mandatory operations and the lock pair consistent", ()
     ].sort(),
     ["list", "lock", "unlock"],
   );
+  assert.throws(
+    () =>
+      loadConfig({
+        ...environment,
+        TFO_STORAGE_MAX_DOCUMENT_BYTES: String(300 * 1024 * 1024 + 1),
+      }),
+    /314572800/,
+  );
+});
+
+test("rejects oversized stored documents and metadata responses", async () => {
+  await fixture(
+    async ({ storageRoot, port }) => {
+      await writeFile(
+        path.join(storageRoot, "contracts", "oversized.docx"),
+        "123456789",
+      );
+      const info = await send(port, {
+        method: "GET",
+        rawPath: "/tfo-storage/v1/contracts/oversized.docx/info",
+      });
+      assert.equal(info.status, 413);
+      const get = await send(port, {
+        method: "GET",
+        rawPath: "/tfo-storage/v1/contracts/oversized.docx/get",
+      });
+      assert.equal(get.status, 413);
+    },
+    { maxDocumentBytes: 8 },
+  );
+
+  await fixture(
+    async ({ port }) => {
+      const info = await send(port, {
+        method: "GET",
+        rawPath: "/tfo-storage/v1/info",
+      });
+      assert.equal(info.status, 413);
+    },
+    { rootName: "x".repeat(5 * 1024 * 1024) },
+  );
 });
 
 test("declares every optional operation unsupported only after authentication and without storage access", async () =>

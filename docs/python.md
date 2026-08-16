@@ -56,7 +56,9 @@ retaining the router, Pydantic models, security verifier, and exception
 handlers.
 
 The router uses `JSONResponse` for bounded INFO/LIST models; Starlette renders
-the bytes at construction and publishes their exact `Content-Length`. GET uses
-`FileResponse`, which determines the original file size before streaming. A
+the bytes at construction, rejects either body above 5 MiB, and publishes their
+exact `Content-Length`. GET uses `FileResponse`, which determines the original
+file size before streaming; settings and the local service reject files above
+the 300 MiB protocol hard gate first. A
 replacement FastAPI response must preserve those fixed-length semantics and
 must not return an unbounded `StreamingResponse` with chunked transfer.

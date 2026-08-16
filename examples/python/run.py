@@ -23,7 +23,7 @@ else:
         "rootName": "Documents",
         "adapter": "local-directory-python",
         "requestJwtSecret": secrets.token_urlsafe(32),
-        "maxDocumentBytes": 536_870_912,
+        "maxDocumentBytes": 314_572_800,
     }
     configuration_file.write_text(
         json.dumps(configuration, indent=2) + "\n", encoding="utf-8"

@@ -146,7 +146,8 @@ Query strings, redirects, cookies, arbitrary forwarding headers, chunked PUT,
 path traversal, and symbolic links are not part of this contract.
 Successful INFO, LIST, and GET responses also must not use chunked transfer or
 content encoding. Providers must determine and publish the exact response byte
-length before streaming; GET can still stream arbitrarily large documents.
+length before streaming. INFO/LIST JSON is capped at 5 MiB each, and file
+metadata, GET, and PUT share a 300 MiB protocol hard gate.
 
 If a customer implementation intentionally omits an operation, it can return
 the protocol's authenticated `501` response with the exact single-field code,

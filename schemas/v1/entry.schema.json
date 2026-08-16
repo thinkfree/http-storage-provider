@@ -21,8 +21,8 @@
     "size": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 9007199254740991,
-      "description": "Content length in bytes. A directory must use zero."
+      "maximum": 314572800,
+      "description": "Content length in bytes. Files are limited to the 300 MiB protocol hard gate; a directory must use zero."
     },
     "readable": {"type": "boolean"},
     "writable": {"type": "boolean"},

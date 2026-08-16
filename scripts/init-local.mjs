@@ -23,7 +23,7 @@ const configuration = [
   "TFO_STORAGE_ROOT_NAME=Documents",
   `TFO_STORAGE_ADAPTER=${adapter}`,
   `TFO_STORAGE_REQUEST_JWT_SECRET=${secret}`,
-  "TFO_STORAGE_MAX_DOCUMENT_BYTES=536870912",
+  "TFO_STORAGE_MAX_DOCUMENT_BYTES=314572800",
   "",
 ].join("\n");
 

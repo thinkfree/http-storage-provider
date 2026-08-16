@@ -46,9 +46,10 @@ Boot can provide the `tfo.storage.*` properties directly in
 `application.properties` or `application.yaml`.
 
 `StorageController` serializes bounded INFO/LIST DTOs with Jackson to a byte
-array, sets that array's exact `Content-Length`, and returns the same bytes.
-GET uses a Spring `Resource` with the file's known original length, so large
-documents remain streamed. A custom Spring implementation must not return an
+array, rejects either body above 5 MiB, sets that array's exact `Content-Length`,
+and returns the same bytes. GET uses a Spring `Resource` with the file's known
+original length. The configuration and local service reject files above the
+300 MiB protocol hard gate before streaming. A custom Spring implementation must not return an
 unknown-length `StreamingResponseBody` or rely on chunked transfer for these
 three operations.
 

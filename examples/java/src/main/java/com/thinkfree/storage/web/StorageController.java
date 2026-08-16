@@ -31,6 +31,7 @@ import java.util.Set;
 /** Spring MVC boundary for the signed HTTP Storage protocol. */
 @RestController
 public class StorageController {
+    private static final int MAX_METADATA_RESPONSE_BYTES = 5 * 1024 * 1024;
     private static final String EMPTY_SHA256 =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -152,6 +153,10 @@ public class StorageController {
         // response length. Rendering this bounded metadata once makes the
         // protocol's exact Content-Length explicit for INFO and LIST.
         byte[] body = objectMapper.writeValueAsBytes(value);
+        if (body.length > MAX_METADATA_RESPONSE_BYTES) {
+            throw new StorageException(HttpStatus.PAYLOAD_TOO_LARGE,
+                    "The metadata response exceeds the 5 MiB protocol limit");
+        }
         return ResponseEntity.status(status)
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.APPLICATION_JSON)

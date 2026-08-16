@@ -227,6 +227,12 @@ function sendJson(response, value, statusCode = 200) {
   // Provider can publish the exact UTF-8 byte length instead of relying on
   // chunked transfer. Office rejects missing or ambiguous response framing.
   const body = Buffer.from(JSON.stringify(value));
+  if (body.length > 5 * 1024 * 1024) {
+    throw new StorageError(
+      413,
+      "The metadata response exceeds the 5 MiB protocol limit",
+    );
+  }
   response.status(statusCode).set({
     "Content-Type": "application/json",
     "Content-Length": body.length,

@@ -49,16 +49,17 @@ to a restricted staging file while calculating SHA-256, verify the signed
 request, and then move the staged file to the destination. They delete a staged
 file after any failed request.
 
-Apply a document-size limit before and during staging. Keep staging on the same
+Apply the 300 MiB protocol hard gate, or a smaller deployment limit, before and
+during staging. Keep staging on the same
 filesystem as the destination when relying on atomic rename. Monitor free
 space, stale staging files, failed cleanup, and write latency. Do not replace
 the streaming loop with an unbounded byte array.
 
-For responses, serialize only the bounded INFO/LIST metadata in memory and set
+For responses, serialize only INFO/LIST metadata up to 5 MiB in memory and set
 its exact UTF-8 `Content-Length`. Resolve a document's original size before GET
-and stream exactly that many bytes with `application/octet-stream`. Do not gzip
-or use chunked transfer for INFO, LIST, or GET; large GET bodies must stay
-streamed and must never be assembled into one byte array.
+and reject files above 300 MiB before sending headers. Stream accepted files
+with `application/octet-stream`. Do not gzip or use chunked transfer for INFO,
+LIST, or GET; GET bodies must never be assembled into one byte array.
 
 ## Coordinate locks and replay across replicas
 

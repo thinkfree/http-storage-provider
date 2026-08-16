@@ -128,6 +128,23 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         self.socket.close()
         self.start_server(unsupported_operations)
 
+    def test_rejects_stored_documents_above_the_configured_limit(self) -> None:
+        oversized = self.root / "contracts" / "oversized.docx"
+        oversized.write_bytes(b"x" * (1024 * 1024 + 1))
+        status, _, _ = self.send("GET", "/tfo-storage/v1/contracts/oversized.docx/info")
+        self.assertEqual(413, status)
+        status, _, _ = self.send("GET", "/tfo-storage/v1/contracts/oversized.docx/get")
+        self.assertEqual(413, status)
+
+    def test_document_hard_gate_cannot_be_configured_above_300_mib(self) -> None:
+        with self.assertRaises(ValidationError):
+            Settings(
+                root=self.root,
+                adapter=ADAPTER,
+                request_jwt_secret=SECRET,
+                max_document_bytes=314_572_801,
+            )
+
     def send(
         self,
         method: str,

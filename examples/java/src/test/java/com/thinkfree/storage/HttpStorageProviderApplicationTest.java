@@ -192,6 +192,19 @@ class HttpStorageProviderApplicationTest {
                 storageRoot, "Documents", ADAPTER, SECRET, 1024, Set.of("get")));
         assertThrows(IllegalArgumentException.class, () -> new StorageProperties(
                 storageRoot, "Documents", ADAPTER, SECRET, 1024, Set.of("lock")));
+        assertThrows(IllegalArgumentException.class, () -> new StorageProperties(
+                storageRoot, "Documents", ADAPTER, SECRET,
+                StorageProperties.MAX_DOCUMENT_BYTES + 1, Set.of()));
+    }
+
+    @Test
+    void rejectsStoredDocumentsAboveTheConfiguredLimit() throws Exception {
+        Path oversized = storageRoot.resolve("contracts/oversized.docx");
+        Files.write(oversized, new byte[1024 * 1024 + 1]);
+        assertEquals(413, send("GET", "/tfo-storage/v1/contracts/oversized.docx/info",
+                null, null, null).statusCode());
+        assertEquals(413, send("GET", "/tfo-storage/v1/contracts/oversized.docx/get",
+                null, null, null).statusCode());
     }
 
     private static void assertFixedResponse(HttpResponse<byte[]> response, String contentType) {

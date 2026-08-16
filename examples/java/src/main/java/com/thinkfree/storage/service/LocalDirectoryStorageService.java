@@ -46,6 +46,10 @@ public class LocalDirectoryStorageService {
         if (!attributes.isRegularFile() && !attributes.isDirectory()) {
             throw new StorageException(HttpStatus.FORBIDDEN, "This storage item type is not supported");
         }
+        if (attributes.isRegularFile() && attributes.size() > properties.maxDocumentBytes()) {
+            throw new StorageException(HttpStatus.PAYLOAD_TOO_LARGE,
+                    "The document exceeds the Provider size limit");
+        }
         String documentPath = String.join("/", path);
         StorageStateStore.LockStatus lock = stateStore.currentLock(documentPath);
         return new StorageEntry(
@@ -88,6 +92,10 @@ public class LocalDirectoryStorageService {
         Path file = existingPath(path);
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
             throw new StorageException(HttpStatus.CONFLICT, "The requested item is not a file");
+        }
+        if (Files.size(file) > properties.maxDocumentBytes()) {
+            throw new StorageException(HttpStatus.PAYLOAD_TOO_LARGE,
+                    "The document exceeds the Provider size limit");
         }
         return new Download(new FileSystemResource(file), Files.size(file));
     }

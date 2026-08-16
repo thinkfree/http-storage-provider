@@ -27,6 +27,8 @@ class LocalDirectoryStorageService:
         metadata = item.stat(follow_symlinks=False)
         if not (item.is_file() or item.is_dir()):
             raise StorageError(403, "This storage item type is not supported")
+        if item.is_file() and metadata.st_size > self.settings.max_document_bytes:
+            raise StorageError(413, "The document exceeds the Provider size limit")
         document_path = "/".join(segments)
         lock = self.state_store.current_lock(document_path)
         return StorageEntry(
@@ -59,6 +61,8 @@ class LocalDirectoryStorageService:
         file = self._safe_path(segments)
         if not file.is_file():
             raise StorageError(409, "The requested item is not a file")
+        if file.stat().st_size > self.settings.max_document_bytes:
+            raise StorageError(413, "The document exceeds the Provider size limit")
         return file
 
     def save(self, segments: tuple[str, ...], staged_file: Path) -> str:
