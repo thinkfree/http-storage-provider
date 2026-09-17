@@ -111,11 +111,9 @@ public class StorageController {
             case LIST -> jsonResponse(HttpStatus.OK, storageService.list(route.path()));
             case GET -> download(route);
             case PUT -> {
-                String revision = storageService.save(route.path(), body.stagedFile());
+                String docId = storageService.save(route.path(), body.stagedFile());
                 body.markCommitted();
-                yield noStore(ResponseEntity.ok())
-                        .contentType(MediaType.TEXT_PLAIN)
-                        .body(revision);
+                yield jsonResponse(HttpStatus.OK, java.util.Map.of("docId", docId));
             }
             case LOCK -> {
                 storageService.lock(route.path(), lockRequest(body.bytes()).owner());

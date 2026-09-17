@@ -7,7 +7,6 @@ import {
   PROTOCOL_PREFIX,
   requireChildName,
 } from "../domain/storage-route.mjs";
-import { sendText } from "../middleware/error-handler.mjs";
 import { oneHeader } from "../security/request-jwt-verifier.mjs";
 
 const EMPTY_SHA256 = createHash("sha256").update(Buffer.alloc(0)).digest("hex");
@@ -177,12 +176,9 @@ async function executeOperation(response, route, body, storageService) {
       return;
     }
     case "put": {
-      const revision = await storageService.save(
-        route.segments,
-        body.stagingFile,
-      );
+      const docId = await storageService.save(route.segments, body.stagingFile);
       body.committed = true;
-      sendText(response, 200, revision);
+      sendJson(response, { docId });
       return;
     }
     case "lock":

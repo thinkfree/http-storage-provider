@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TFO HTTP Storage put response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "docId"
+  ],
+  "properties": {
+    "docId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(?![\\s\\S])",
+      "not": {
+        "pattern": "^([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee])$"
+      },
+      "description": "Opaque identifier of the saved document within the adapter. Stable for the same destination, distinct for different destinations; not a content revision."
+    }
+  }
+}

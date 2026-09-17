@@ -88,7 +88,7 @@ atomic store shared by every replica.
 | Read metadata | Yes | `GET` | `/{path}/info` | No body | JSON entry with fixed `Content-Length`; a missing item is `404`. |
 | List direct children | No | `GET` | `/{path}/list` | No body | JSON object with `entries` and fixed `Content-Length`. |
 | Download | Yes | `GET` | `/{path}/get` | No body | Raw bytes with fixed `Content-Length`. |
-| Save | No | `PUT` | `/{path}/put` | Raw bytes and fixed `Content-Length` | Optional revision or result text. |
+| Save | No | `PUT` | `/{path}/put` | Raw bytes and fixed `Content-Length` | Required JSON object with `docId` and fixed `Content-Length`. |
 | Lock | No, paired with unlock | `POST` | `/{path}/lock` | `{"owner":"..."}` | Any `2xx`. |
 | Unlock | No, paired with lock | `POST` | `/{path}/unlock` | `{"owner":"..."}` | Any `2xx`. |
 | Create directory | No | `POST` | `/{parent}/mkdir` | `{"name":"..."}` | Any `2xx`. |
@@ -100,14 +100,14 @@ atomic store shared by every replica.
 adapter sends a fixed `Content-Length`; chunked request transfer is not part of
 the protocol.
 
-### Frame successful read responses with a fixed length
+### Frame successful responses with a fixed length
 
-Every successful `info`, `list`, and `get` response must include exactly one
+Every successful `info`, `list`, `get`, and `put` response must include exactly one
 decimal `Content-Length` whose value is the exact number of response-body
 bytes. Do not send `Transfer-Encoding: chunked` or `Content-Encoding`; Office
 does not buffer an unknown or compressed body to discover its final size.
 
-`info` and `list` use `application/json` UTF-8 bodies and are each limited by the
+`info`, `list`, and `put` use `application/json` UTF-8 bodies and are each limited by the
 packaged adapter to 5 MiB. Serialize the bounded JSON once, calculate its
 UTF-8 byte length, set `Content-Length`, and then send those same bytes. `get`
 uses `application/octet-stream`. Determine the stored object's original size
@@ -128,8 +128,32 @@ compressed transfer; wrong media type; early EOF; and a body that exceeds its
 declared length are Provider errors. Office fails only that operation, closes
 the upstream response, and keeps the adapter service available for later
 requests. Error responses and the authenticated `501` capability response
-remain bounded, but only successful INFO/LIST/GET responses use this mandatory
+remain bounded, but only successful INFO/LIST/GET/PUT responses use this mandatory
 fixed-read contract.
+
+### Return the saved document identity
+
+After saving, return a `2xx` response with UTF-8 `application/json` and a fixed
+`Content-Length`. The required body contains exactly one field:
+
+```json
+{"docId":"saved-document-id"}
+```
+
+`docId` is a 1–1,024 character identifier, beginning with an ASCII letter or digit
+and containing only ASCII letters, digits, `.`, `_`, `:`, and `-`. The values
+`true` and `false` are reserved, regardless of case. Do not trim or rewrite IDs.
+Return the identity of the saved destination for every save type. Within an
+adapter, the same destination keeps the same ID when contents change, and
+different destinations have different IDs. Do not return a revision or the
+original session's document ID for a save to another destination.
+
+Empty bodies, `204`, plain text IDs, XML, JSON scalars (including `true`), missing
+or extra fields, duplicate fields, and trailing JSON values or text are rejected.
+See the [PUT response schema](../schemas/v1/put-response.schema.json).
+The reference servers use the lowercase SHA-256 of the decoded root-relative
+UTF-8 path as `docId`; production Providers can use their own stable IDs that
+satisfy the same format. Metadata revisions remain available through `info`.
 
 ### Declare that an operation is not implemented
 

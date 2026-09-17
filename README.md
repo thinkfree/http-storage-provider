@@ -144,7 +144,7 @@ lifetime, unique `jti`, adapter identity, actual HTTP method, raw encoded path,
 content type, body length, and SHA-256 before accessing document storage.
 Query strings, redirects, cookies, arbitrary forwarding headers, chunked PUT,
 path traversal, and symbolic links are not part of this contract.
-Successful INFO, LIST, and GET responses also must not use chunked transfer or
+Successful INFO, LIST, GET, and PUT responses also must not use chunked transfer or
 content encoding. Providers must determine and publish the exact response byte
 length before streaming. INFO/LIST JSON is capped at 5 MiB each, and file
 metadata, GET, and PUT share a 300 MiB protocol hard gate.

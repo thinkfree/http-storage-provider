@@ -173,6 +173,29 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         connection.close()
         return result
 
+    def test_put_returns_stable_json_document_identity(self) -> None:
+        ids = []
+        for file, contents in [
+            ("contracts/saved document.docx", b"first"),
+            ("contracts/saved document.docx", b"changed contents"),
+            ("contracts/other.docx", b"changed contents"),
+        ]:
+            status, headers, body = self.send(
+                "PUT",
+                f"/tfo-storage/v1/{file.replace(' ', '%20')}/put",
+                contents,
+                "application/octet-stream",
+            )
+            self.assertEqual(200, status)
+            self.assert_fixed_response(headers, body, "application/json")
+            result = json.loads(body)
+            self.assertEqual(
+                {"docId": hashlib.sha256(file.encode()).hexdigest()}, result
+            )
+            ids.append(result["docId"])
+        self.assertEqual(ids[0], ids[1])
+        self.assertNotEqual(ids[1], ids[2])
+
     def test_complete_storage_lifecycle(self) -> None:
         file = "contracts/sample%20document.docx"
         status, headers, body = self.send("GET", f"/tfo-storage/v1/{file}/info")
