@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   access,
   constants,
@@ -107,7 +108,10 @@ export class LocalDirectoryStorageService {
       throw new StorageError(409, "A directory already uses this path");
     }
     await rename(stagingFile, target);
-    return revisionFor(await lstat(target));
+    // A document keeps its identity when its contents change.
+    return createHash("sha256")
+      .update(segments.join("/"), "utf8")
+      .digest("hex");
   }
 
   async lock(segments, owner) {

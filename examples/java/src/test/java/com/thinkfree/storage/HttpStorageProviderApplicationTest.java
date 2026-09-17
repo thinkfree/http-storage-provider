@@ -36,6 +36,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class HttpStorageProviderApplicationTest {
@@ -80,6 +81,26 @@ class HttpStorageProviderApplicationTest {
     @AfterEach
     void tearDown() {
         application.close();
+    }
+
+    @Test
+    void putReturnsStableJsonDocumentIdentity() throws Exception {
+        var ids = new java.util.ArrayList<String>();
+        String[] paths = {"contracts/saved document.docx", "contracts/saved document.docx", "contracts/other.docx"};
+        String[] contents = {"first", "changed contents", "changed contents"};
+        for (int index = 0; index < paths.length; index++) {
+            HttpResponse<byte[]> result = send("PUT",
+                    "/tfo-storage/v1/" + paths[index].replace(" ", "%20") + "/put",
+                    contents[index].getBytes(StandardCharsets.UTF_8), "application/octet-stream", null);
+            assertEquals(200, result.statusCode());
+            assertFixedResponse(result, "application/json");
+            JsonNode body = JSON.readTree(result.body());
+            assertEquals(1, body.size());
+            assertEquals(sha256(paths[index].getBytes(StandardCharsets.UTF_8)), body.get("docId").textValue());
+            ids.add(body.get("docId").textValue());
+        }
+        assertEquals(ids.get(0), ids.get(1));
+        assertNotEquals(ids.get(1), ids.get(2));
     }
 
     @Test

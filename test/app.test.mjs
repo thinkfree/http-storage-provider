@@ -247,6 +247,30 @@ test("serves the complete signed storage lifecycle", async () =>
     );
   }));
 
+test("PUT returns a JSON document identity stable across content changes", async () =>
+  fixture(async ({ port }) => {
+    const ids = [];
+    for (const [file, contents] of [
+      ["contracts/saved document.docx", "first"],
+      ["contracts/saved document.docx", "changed contents"],
+      ["contracts/other.docx", "changed contents"],
+    ]) {
+      const result = await send(port, {
+        method: "PUT",
+        rawPath: `/tfo-storage/v1/${file.replaceAll(" ", "%20")}/put`,
+        body: Buffer.from(contents),
+        contentType: "application/octet-stream",
+      });
+      assert.equal(result.status, 200);
+      assertFixedResponse(result, "application/json");
+      const body = JSON.parse(result.body);
+      assert.deepEqual(body, { docId: sha256(Buffer.from(file)) });
+      ids.push(body.docId);
+    }
+    assert.equal(ids[0], ids[1]);
+    assert.notEqual(ids[1], ids[2]);
+  }));
+
 function assertFixedResponse(response, contentType) {
   assert.equal(response.headers["transfer-encoding"], undefined);
   assert.equal(response.headers["content-encoding"], undefined);

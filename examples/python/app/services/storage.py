@@ -1,3 +1,4 @@
+import hashlib
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,8 +74,8 @@ class LocalDirectoryStorageService:
         if target.is_dir():
             raise StorageError(409, "A directory already uses this path")
         os.replace(staged_file, target)
-        metadata = target.stat()
-        return f"{metadata.st_mtime_ns}-{metadata.st_size}"
+        # Identity depends on the destination, not the file contents or revision.
+        return hashlib.sha256("/".join(segments).encode("utf-8")).hexdigest()
 
     def lock(self, segments: tuple[str, ...], owner: str) -> None:
         self.info(segments)

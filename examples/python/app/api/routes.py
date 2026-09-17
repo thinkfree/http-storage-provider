@@ -236,9 +236,9 @@ def execute(
     if route.operation is Operation.PUT:
         if body.staging_file is None:
             raise StorageError(400, "A document path is required")
-        revision = storage.save(route.segments, body.staging_file)
+        doc_id = storage.save(route.segments, body.staging_file)
         body.committed = True
-        return PlainTextResponse(revision, headers=NO_STORE)
+        return JSONResponse({"docId": doc_id}, headers=NO_STORE)
     if route.operation in {Operation.LOCK, Operation.UNLOCK}:
         value = parse_model(LockRequest, body.content, "owner")
         if route.operation is Operation.LOCK:

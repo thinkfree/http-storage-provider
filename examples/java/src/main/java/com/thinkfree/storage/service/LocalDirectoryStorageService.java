@@ -8,6 +8,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
@@ -114,7 +118,13 @@ public class LocalDirectoryStorageService {
         } catch (AtomicMoveNotSupportedException exception) {
             Files.move(stagedFile, target, StandardCopyOption.REPLACE_EXISTING);
         }
-        return revision(Files.readAttributes(target, BasicFileAttributes.class));
+        // A document keeps its identity when its contents change.
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(String.join("/", path).getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IOException("SHA-256 is unavailable", exception);
+        }
     }
 
     public void lock(List<String> path, String owner) throws IOException {

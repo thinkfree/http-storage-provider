@@ -55,7 +55,7 @@ filesystem as the destination when relying on atomic rename. Monitor free
 space, stale staging files, failed cleanup, and write latency. Do not replace
 the streaming loop with an unbounded byte array.
 
-For responses, serialize only INFO/LIST metadata up to 5 MiB in memory and set
+For responses, serialize only INFO/LIST metadata and PUT result JSON up to 5 MiB in memory and set
 its exact UTF-8 `Content-Length`. Resolve a document's original size before GET
 and reject files above 300 MiB before sending headers. Stream accepted files
 with `application/octet-stream`. Do not gzip or use chunked transfer for INFO,
