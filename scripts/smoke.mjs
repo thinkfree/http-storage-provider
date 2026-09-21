@@ -33,7 +33,6 @@ async function signedList(rawPath) {
     .digest("base64url");
   const response = await fetch(`http://${host}:${port}${rawPath}`, {
     headers: {
-      "X-TFO-Storage-Adapter": adapter,
       "X-TFO-Storage-Request-JWT": `${header}.${claims}.${signature}`,
     },
   });

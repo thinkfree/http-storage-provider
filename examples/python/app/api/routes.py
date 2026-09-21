@@ -105,7 +105,6 @@ async def storage_request(
     try:
         verifier.verify(
             request.headers.get("X-TFO-Storage-Request-JWT"),
-            request.headers.get("X-TFO-Storage-Adapter"),
             request.method,
             route.raw_path,
             request.headers.get("Content-Type"),

@@ -12,21 +12,27 @@ import unittest
 import uuid
 from http.client import HTTPConnection
 from pathlib import Path
+from unittest.mock import Mock
 
 import uvicorn
 from pydantic import ValidationError
 
 from app.config import Settings
+from app.exceptions import RequestAuthenticationError
 from app.main import create_app
+from app.security import RequestJwtVerifier
 
 ADAPTER = "customer-storage-a"
 SECRET = "python-provider-test-secret-at-least-32-bytes"
 
 
 def encode(value: object) -> str:
+    # Whitespace ensures verification uses the original signing input.
     return (
         base64.urlsafe_b64encode(
-            json.dumps(value, separators=(",", ":")).encode("utf-8")
+            (
+                " " + json.dumps(value, ensure_ascii=False, separators=(",", ":")) + " "
+            ).encode("utf-8")
         )
         .decode("ascii")
         .rstrip("=")
@@ -34,7 +40,15 @@ def encode(value: object) -> str:
 
 
 def sign(
-    method: str, path: str, body: bytes = b"", content_type: str | None = None
+    method: str,
+    path: str,
+    body: bytes = b"",
+    content_type: str | None = None,
+    *,
+    request_overrides=None,
+    claims_overrides=None,
+    header_overrides=None,
+    secret=SECRET,
 ) -> str:
     now = int(time.time())
     request: dict[str, object] = {
@@ -46,7 +60,10 @@ def sign(
     }
     if content_type is not None:
         request["content_type"] = content_type
-    header = encode({"alg": "HS256", "typ": "tfo-storage-request+jwt"})
+    request.update(request_overrides or {})
+    header = encode(
+        {"alg": "HS256", "typ": "tfo-storage-request+jwt", **(header_overrides or {})}
+    )
     claims = encode(
         {
             "iss": "thinkfree-office",
@@ -55,12 +72,13 @@ def sign(
             "exp": now + 60,
             "jti": str(uuid.uuid4()),
             "request": request,
+            **(claims_overrides or {}),
         }
     )
     signature = (
         base64.urlsafe_b64encode(
             hmac.new(
-                SECRET.encode(), f"{header}.{claims}".encode(), hashlib.sha256
+                secret.encode(), f"{header}.{claims}".encode(), hashlib.sha256
             ).digest()
         )
         .decode("ascii")
@@ -152,13 +170,15 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         body: bytes | None = None,
         content_type: str | None = None,
         token: str | None = None,
+        adapter: str | None = None,
     ) -> tuple[int, dict[str, str], bytes]:
         actual_body = body or b""
         headers = {
-            "X-TFO-Storage-Adapter": ADAPTER,
             "X-TFO-Storage-Request-JWT": token
             or sign(method, path, actual_body, content_type),
         }
+        if adapter is not None:
+            headers["X-TFO-Storage-Adapter"] = adapter
         if content_type is not None:
             headers["Content-Type"] = content_type
             headers["Content-Length"] = str(len(actual_body))
@@ -172,6 +192,160 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         )
         connection.close()
         return result
+
+    def test_adapter_selection_ignores_legacy_header(self) -> None:
+        path = "/tfo-storage/v1/contracts/list"
+        for adapter in [None, ADAPTER, "other-adapter"]:
+            self.assertEqual(200, self.send("GET", path, adapter=adapter)[0])
+        for adapter in ["unknown", None, 42, True, [ADAPTER], {"name": ADAPTER}]:
+            token = sign("GET", path, request_overrides={"adapter": adapter})
+            self.assertEqual(
+                401, self.send("GET", path, token=token, adapter=ADAPTER)[0]
+            )
+        for request in [None, [], {}, "invalid"]:
+            token = sign("GET", path, claims_overrides={"request": request})
+            self.assertEqual(401, self.send("GET", path, token=token)[0])
+        token = sign("GET", path, secret="another-test-secret-at-least-32-bytes")
+        self.assertEqual(
+            401, self.send("GET", path, token=token, adapter="other-adapter")[0]
+        )
+
+    def test_verified_metadata_and_all_binding_checks(self) -> None:
+        state = Mock()
+        verifier = RequestJwtVerifier(
+            Settings(root=self.root, adapter=ADAPTER, request_jwt_secret=SECRET), state
+        )
+        path = "/prefix/tfo-storage/v1/sample%20file/info"
+
+        def verify(token):
+            return verifier.verify(
+                token, "GET", path, None, 0, hashlib.sha256(b"").hexdigest()
+            )
+
+        metadata = {"customer_context": "고객", "nested": [True, None, {"n": 1}]}
+        result = verify(
+            sign(
+                "GET",
+                path,
+                request_overrides={
+                    "client_metadata": metadata,
+                    "arguments": {"save_type": "save"},
+                },
+            )
+        )
+        self.assertEqual(metadata, result["client_metadata"])
+        self.assertEqual({"save_type": "save"}, result["arguments"])
+        self.assertEqual(ADAPTER, result["adapter"])
+        state.consume_request_id.assert_called_once()
+        state.consume_request_id.side_effect = RequestAuthenticationError()
+        with self.assertRaises(RequestAuthenticationError):
+            verify(sign("GET", path))
+        state.consume_request_id.side_effect = None
+
+        depth8 = "leaf"
+        for _ in range(8):
+            depth8 = {"child": depth8}
+        exact_bytes = {"a": "x" * 512, "b": "x" * 512, "c": "x" * 512, "d": "x" * 483}
+        self.assertEqual(
+            2048, len(json.dumps(exact_bytes, separators=(",", ":")).encode())
+        )
+        for metadata in [
+            {},
+            {"text": "é" * 512},
+            {"text": "😀" * 256},
+            {"k" * 64: "ok"},
+            {"😀" * 32: "ok"},
+            {"\u00a0": "nonbreaking space is not Java whitespace"},
+            depth8,
+            exact_bytes,
+            {**exact_bytes, "d": "x" * 484},
+        ]:
+            self.assertEqual(
+                metadata,
+                verify(
+                    sign("GET", path, request_overrides={"client_metadata": metadata})
+                )["client_metadata"],
+            )
+        for metadata in [
+            None,
+            [],
+            "text",
+            {"text": "x" * 513},
+            {"k" * 65: 1},
+            {"😀" * 33: 1},
+            {"": 1},
+            {" \t\n\u3000": 1},
+            {"text": "😀" * 257},
+            {"child": depth8},
+            {"text": "😀" * 512},
+        ]:
+            with self.assertRaises(RequestAuthenticationError):
+                verify(
+                    sign("GET", path, request_overrides={"client_metadata": metadata})
+                )
+
+        now = int(time.time())
+        cases = [
+            {"header_overrides": {"alg": "HS384"}},
+            {"header_overrides": {"typ": "JWT"}},
+            {"claims_overrides": {"iss": "wrong"}},
+            {"claims_overrides": {"aud": ["tfo-http-storage-provider", "wrong"]}},
+            {"claims_overrides": {"iat": now + 30}},
+            {"claims_overrides": {"exp": now - 1}},
+            {"claims_overrides": {"exp": now + 120}},
+            {"claims_overrides": {"jti": ""}},
+            *[
+                {"request_overrides": item}
+                for item in [
+                    {"method": "POST"},
+                    {"path": path.replace("%20", " ")},
+                    {"content_length": 1},
+                    {"content_length": 0.5},
+                    {"content_length": False},
+                    {"method": ["GET"]},
+                    {"content_sha256": "0" * 64},
+                    {"content_type": "application/json"},
+                    {"content_type": " "},
+                    {"content_type": None},
+                ]
+            ],
+        ]
+        for options in cases:
+            state.reset_mock()
+            with self.assertRaises(RequestAuthenticationError):
+                verify(sign("GET", path, **options))
+            state.consume_request_id.assert_not_called()
+        with self.assertRaises(RequestAuthenticationError):
+            verify("x" * 8193)
+
+        # Valid /open input expands under Nimbus number serialization.
+        input_json = '{"items":[' + ",".join(["1e-7"] * 700) + "]}"
+        self.assertEqual(3511, len(input_json.encode()))
+        self.assertEqual(4911, len(input_json.replace("1e-7", "1.0E-7").encode()))
+        numeric_metadata = json.loads(input_json)
+        original = sign(
+            "GET", path, request_overrides={"client_metadata": numeric_metadata}
+        )
+        header, payload, _ = original.split(".")
+        payload_json = (
+            base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+            .decode()
+            .replace("1e-07", "1.0E-7")
+        )
+        payload = base64.urlsafe_b64encode(payload_json.encode()).decode().rstrip("=")
+        signature = (
+            base64.urlsafe_b64encode(
+                hmac.new(
+                    SECRET.encode(), f"{header}.{payload}".encode(), hashlib.sha256
+                ).digest()
+            )
+            .decode()
+            .rstrip("=")
+        )
+        expanded_token = f"{header}.{payload}.{signature}"
+        self.assertGreater(len(expanded_token.encode()), 5120)
+        self.assertLessEqual(len(expanded_token.encode()), 8192)
+        self.assertEqual(numeric_metadata, verify(expanded_token)["client_metadata"])
 
     def test_put_returns_stable_json_document_identity(self) -> None:
         ids = []

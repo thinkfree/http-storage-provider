@@ -23,6 +23,15 @@ The code uses a FastAPI application factory, `APIRouter`, dependency injection,
 Pydantic Settings and models, exception handlers, and a replaceable storage
 service under `app/`.
 
+Only `X-TFO-Storage-Request-JWT` is required for request authentication. The
+verifier selects the configured key from the bounded token's adapter claim,
+verifies the original JWT, and returns the verified request dictionary. Legacy
+adapter headers are ignored. Optional `client_metadata` must still be checked
+against your own customer session and document/operation policy; this example
+does not supply that authentication service. See the
+[Python verified-context example](../../docs/python.md#use-verified-customer-context)
+and [metadata delivery and limits](../../docs/protocol.md#pass-customer-context).
+
 With the server running, verify one signed root-list request in another shell:
 
 ```bash
