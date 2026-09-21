@@ -84,6 +84,17 @@ class HttpStorageProviderApplicationTest {
     }
 
     @Test
+    void legacyAdapterHeadersAreIgnored() throws Exception {
+        String path = "/tfo-storage/v1/contracts/list";
+        for (String adapter : List.of(ADAPTER, "other-adapter")) {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                    .header("X-TFO-Storage-Request-JWT", token("GET", path, new byte[0], null))
+                    .header("X-TFO-Storage-Adapter", adapter).GET().build();
+            assertEquals(200, client.send(request, HttpResponse.BodyHandlers.ofByteArray()).statusCode());
+        }
+    }
+
+    @Test
     void putReturnsStableJsonDocumentIdentity() throws Exception {
         var ids = new java.util.ArrayList<String>();
         String[] paths = {"contracts/saved document.docx", "contracts/saved document.docx", "contracts/other.docx"};
@@ -249,7 +260,6 @@ class HttpStorageProviderApplicationTest {
                 ? token(method, rawPath, actualBody, contentType)
                 : explicitToken;
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + rawPath))
-                .header("X-TFO-Storage-Adapter", ADAPTER)
                 .header("X-TFO-Storage-Request-JWT", requestToken);
         if (contentType != null) builder.header("Content-Type", contentType);
         HttpRequest.BodyPublisher publisher = body == null

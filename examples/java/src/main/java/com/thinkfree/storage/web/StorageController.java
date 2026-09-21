@@ -78,7 +78,6 @@ public class StorageController {
         try {
             requestVerifier.verify(
                     request.getHeader("X-TFO-Storage-Request-JWT"),
-                    request.getHeader("X-TFO-Storage-Adapter"),
                     request.getMethod(),
                     route.rawPath(),
                     request.getHeader(HttpHeaders.CONTENT_TYPE),

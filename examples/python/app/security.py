@@ -21,16 +21,14 @@ class RequestJwtVerifier:
     def verify(
         self,
         token: str | None,
-        adapter_header: str | None,
         method: str,
         raw_path: str,
         content_type: str | None,
         content_length: int,
         content_sha256: str,
-    ) -> None:
-        if token is None or len(token.encode("utf-8")) > 5120:
-            raise RequestAuthenticationError()
-        if not hmac.compare_digest(adapter_header or "", self.settings.adapter):
+    ) -> dict[str, Any]:
+        """Return the signed request only after verification and replay consumption."""
+        if token is None or len(token.encode("utf-8")) > 8192:
             raise RequestAuthenticationError()
         parts = token.split(".")
         if len(parts) != 3:
@@ -39,9 +37,15 @@ class RequestJwtVerifier:
         try:
             header = json.loads(self._decode(parts[0]))
             claims = json.loads(self._decode(parts[1]))
-        except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError, RecursionError):
             raise RequestAuthenticationError() from None
         if not isinstance(header, dict) or not isinstance(claims, dict):
+            raise RequestAuthenticationError()
+        # Unverified input selects only the existing configured adapter key.
+        candidate = claims.get("request")
+        if not isinstance(candidate, dict) or not self._equals(
+            candidate, "adapter", self.settings.adapter
+        ):
             raise RequestAuthenticationError()
         if (
             header.get("alg") != "HS256"
@@ -65,8 +69,8 @@ class RequestJwtVerifier:
         valid = (
             claims.get("iss") == "thinkfree-office"
             and audience == ["tfo-http-storage-provider"]
-            and isinstance(claims.get("iat"), int)
-            and isinstance(claims.get("exp"), int)
+            and type(claims.get("iat")) is int
+            and type(claims.get("exp")) is int
             and claims["iat"] <= now < claims["exp"]
             and 0 < claims["exp"] - claims["iat"] <= 60
             and isinstance(claims.get("jti"), str)
@@ -75,15 +79,57 @@ class RequestJwtVerifier:
             and self._equals(signed_request, "adapter", self.settings.adapter)
             and self._equals(signed_request, "method", method)
             and self._equals(signed_request, "path", raw_path)
+            and type(signed_request.get("content_length")) is int
             and signed_request.get("content_length") == content_length
             and self._equals(signed_request, "content_sha256", content_sha256)
-            and hmac.compare_digest(
-                str(signed_request.get("content_type", "")), content_type or ""
+            and self._equals(
+                {"content_type": signed_request.get("content_type", "")},
+                "content_type",
+                content_type or "",
             )
         )
         if not valid:
             raise RequestAuthenticationError()
+        if "client_metadata" in signed_request:
+            self._validate_metadata(signed_request["client_metadata"])
         self.state_store.consume_request_id(claims["jti"], claims["exp"])
+        # Verified transit integrity does not confer customer authorization.
+        return signed_request
+
+    @staticmethod
+    def _validate_metadata(metadata: Any) -> None:
+        # TFO caps /open JSON input at 4096 bytes, not its JWT reserialization.
+        # Incoming JWT is capped at 8192 bytes above; root depth 0, max depth 8.
+        # Match Java String.length(): values 512, nonblank keys 64 UTF-16 units.
+        try:
+            if not isinstance(metadata, dict):
+                raise RequestAuthenticationError()
+
+            def visit(value: Any, depth: int) -> None:
+                if depth > 8 or (
+                    isinstance(value, str)
+                    and len(value.encode("utf-16-le", errors="surrogatepass")) // 2
+                    > 512
+                ):
+                    raise RequestAuthenticationError()
+                if isinstance(value, dict):
+                    for key, child in value.items():
+                        # Java String.isBlank(), not Python's broader str.isspace().
+                        if len(
+                            key.encode("utf-16-le", errors="surrogatepass")
+                        ) // 2 > 64 or re.fullmatch(
+                            r"[\u0009-\u000d\u001c-\u0020\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]*",
+                            key,
+                        ):
+                            raise RequestAuthenticationError()
+                        visit(child, depth + 1)
+                elif isinstance(value, list):
+                    for child in value:
+                        visit(child, depth + 1)
+
+            visit(metadata, 0)
+        except (ValueError, UnicodeError, RecursionError):
+            raise RequestAuthenticationError() from None
 
     @staticmethod
     def _decode(part: str) -> bytes:
@@ -97,4 +143,10 @@ class RequestJwtVerifier:
 
     @staticmethod
     def _equals(value: dict[str, Any], field: str, expected: str) -> bool:
-        return hmac.compare_digest(str(value.get(field, "")), expected)
+        actual = value.get(field)
+        try:
+            return isinstance(actual, str) and hmac.compare_digest(
+                actual.encode("utf-8"), expected.encode("utf-8")
+            )
+        except UnicodeError:
+            return False

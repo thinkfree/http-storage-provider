@@ -67,17 +67,20 @@ You can also open the sample directly after replacing the Office origin:
 
 ```text
 https://office.example.com/cloud-office/api/local-directory/samples/sample.docx/open
-  ?app=WRITE_EDITOR
+  ?app=WORD_EDITOR
   &docId=welcome01
   &user_id=example-user
 ```
 
-Use `WRITE_EDITOR` for `sample.docx`, `CALC_EDITOR` for `sample.xlsx`, and
+Use `WORD_EDITOR` for `sample.docx`, `CELL_EDITOR` for `sample.xlsx`, and
 `SHOW_EDITOR` for `sample.pptx`. Give each test document a stable, unique
 alphanumeric `docId`.
 
-Make a visible edit, save, close the editor, and reopen the file. The changed
-document in `storage/samples/` is the expected result.
+Make a visible edit, save, and wait for Office's normal document close to
+complete before reopening the same file with the same `docId`. Closing an
+automated browser context alone does not guarantee that Office has released
+the document lock. The changed document in `storage/samples/` is the expected
+result.
 
 See the production [connection guide](https://www.developers.thinkfree.com/docs/docker/http-storage/)
 and [protocol reference](https://www.developers.thinkfree.com/docs/docker/http-storage-api/)
@@ -142,6 +145,26 @@ All three servers implement the complete Provider operation set:
 Every storage request verifies the HS256 signature, JWT type, issuer, audience,
 lifetime, unique `jti`, adapter identity, actual HTTP method, raw encoded path,
 content type, body length, and SHA-256 before accessing document storage.
+The only required authentication header is `X-TFO-Storage-Request-JWT`.
+The bounded token's unverified `request.adapter` selects only an existing
+configured secret; the Provider then verifies the original token. An old
+`X-TFO-Storage-Adapter` header is ignored, even when it disagrees with the JWT.
+
+For system-adapter document opens, Office calls `info` after its internal
+`start` succeeds and checks file existence and readability before opening the
+editor. Customers implement the Provider's HTTP operations, not a Java `start`
+method. Customer authorization belongs in `info` and must be checked again on
+`get`, `put`, and every other operation; the local-directory examples do not
+implement a customer session or identity service.
+
+All three verifiers return the verified `request` only after verification and
+replay consumption. Read optional `request.client_metadata` from that result,
+then validate any customer session reference against your own session store
+and document/operation permissions. Office's signature protects transit
+integrity; it does not authenticate caller-supplied metadata as a customer
+identity. See [metadata delivery and limits](docs/protocol.md#pass-customer-context)
+and the [authorization checklist](docs/security.md#authorize-customer-access).
+
 Query strings, redirects, cookies, arbitrary forwarding headers, chunked PUT,
 path traversal, and symbolic links are not part of this contract.
 Successful INFO, LIST, GET, and PUT responses also must not use chunked transfer or

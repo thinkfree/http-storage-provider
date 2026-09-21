@@ -24,16 +24,23 @@ redirects, arbitrary forwarding headers, or compatibility routes.
 
 ## Authenticate every request
 
-Every operation includes these headers:
+Every operation includes this authentication header:
 
 ```http
-X-TFO-Storage-Adapter: customer-storage-a
 X-TFO-Storage-Request-JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6InRmby1zdG9yYWdlLXJlcXVlc3Qrand0In0...
 ```
 
-The JWT uses `HS256` and header `typ=tfo-storage-request+jwt`. Resolve the
-secret from the configured adapter identity. Never accept a secret in the URL,
-request body, or another caller-selected field.
+The JWT uses `HS256` and header `typ=tfo-storage-request+jwt`. Before parsing,
+reject tokens above 8,192 UTF-8 bytes. Parse unverified `request.adapter` only
+as a lookup hint for an existing server-configured adapter secret. Reject a
+missing, non-string, or unknown adapter. These examples register one adapter.
+Never accept a secret, key URL, or new adapter registration from caller input.
+
+Verify the original JWT with the selected key, not a token reconstructed from
+decoded JSON. Verify all header/claim and actual-request bindings below, then
+atomically consume `jti` before exposing the verified `request`. The current
+Office adapter does not send `X-TFO-Storage-Adapter`. Providers ignore it if an
+older caller sends it; a mismatch neither selects a key nor overrides the JWT.
 
 ```json
 {
@@ -67,7 +74,7 @@ Validate the signed values against the actual request before storage access.
 | `iat` | JWT claim | integer | Yes | Issued-at Unix time; cannot be in the future. |
 | `exp` | JWT claim | integer | Yes | Expiry Unix time; must be after `iat` and at most 60 seconds later. |
 | `jti` | JWT claim | string | Yes | Unique request ID. Atomically reject reuse until `exp`. |
-| `request.adapter` | signed request | string | Yes | Matches `X-TFO-Storage-Adapter` and one configured Provider connection. |
+| `request.adapter` | signed request | string | Yes | Names an existing configured Provider connection and remains bound to the selected key after verification. |
 | `request.method` | signed request | string | Yes | Matches the actual uppercase HTTP method. |
 | `request.path` | signed request | string | Yes | Matches the actual raw encoded path, including the Provider base path. |
 | `request.content_length` | signed request | integer | Yes | Exact body byte length; `0` when no body exists. |
@@ -75,11 +82,87 @@ Validate the signed values against the actual request before storage access.
 | `request.content_type` | signed request | string | When sent | Matches the actual `Content-Type` exactly. |
 | `request.office_connection_id` | signed request | string | No | Opaque Office runtime context. It is not authorization. |
 | `request.arguments` | signed request | object | No | Operation context such as `save_type`. Unknown values are not authorization. |
-| `request.client_metadata` | signed request | object | No | Caller metadata, maximum 2,048 UTF-8 bytes. Its signature protects transit integrity but does not make it Office identity. |
+| `request.client_metadata` | signed request | object | No | Caller context subject to the structure limits below. Its signature protects transit integrity, not customer identity or authority. |
 
-The complete JWT cannot exceed 5,120 UTF-8 bytes. The adapter creates a new
+The complete JWT cannot exceed 8,192 UTF-8 bytes. The adapter creates a new
 `jti` for every request. A Provider must retain used IDs until expiry in an
 atomic store shared by every replica.
+
+## Pass customer context
+
+Pass `__tfo_adapter_http_storage_client_metadata` as a JSON **string** in the
+Office `/open` parameters, or in the signed open ticket's `command.params`.
+For example, this is the relevant fragment of a ticket command, not a complete
+ticket or an example credential:
+
+```json
+{
+  "params": {
+    "__tfo_adapter_http_storage_client_metadata": "{\"sessionId\":\"customer-issued-document-session-reference\"}"
+  }
+}
+```
+
+Office parses and preserves this context per connection, and includes it as a
+JSON **object** in each subsequent storage request JWT:
+
+```json
+{
+  "request": {
+    "client_metadata": {
+      "sessionId": "customer-issued-document-session-reference"
+    }
+  }
+}
+```
+
+`sessionId` is an illustrative customer-defined field, not an Office identity
+claim or an authentication service provided by these examples. The Provider
+uses only the metadata returned by its verifier, then checks the referenced
+session's expiry, revocation, tenant/user, requested document, and operation in
+its own trusted system. Never authorize from an unverified JWT payload or from
+the metadata's asserted user, tenant, or permissions alone.
+
+The two size boundaries are distinct:
+
+| Boundary | Limit |
+| --- | --- |
+| Original metadata JSON string received by Office at `/open` or in ticket parameters | 4,096 UTF-8 bytes, checked by Office before parsing. |
+| Complete incoming storage request JWT | 8,192 UTF-8 bytes, checked by the Provider before parsing. |
+| Parsed metadata | Object root; maximum depth 8, counting the root as 0 and every object value/array element as one additional level. |
+| Object keys at every depth | Nonblank and at most 64 UTF-16 code units. |
+| String values, including inside arrays | At most 512 UTF-16 code units. |
+
+The string limits use Java `String.length()`, not Unicode code-point counts:
+an emoji outside the basic multilingual plane occupies two units. Blank means
+Java `String.isBlank()` / `Character.isWhitespace`; for example, an all-space
+key is invalid but a nonbreaking space (U+00A0) is not Java whitespace. Do not
+substitute JavaScript `trim()` or Python `isspace()` for this exact rule.
+
+Do not impose another 4,096-byte cap on the metadata's raw span in the JWT or
+on a reserialized object. Number formatting can expand a valid input: an
+`items` array of 700 copies of `1e-7` is 3,511 bytes on input, but 4,911 bytes
+when serialized as `1.0E-7`. This is valid if the complete JWT stays within
+8,192 bytes. The original input string cannot be recovered from the JWT object.
+
+Use a short-lived, narrowly scoped document-session reference when needed.
+Do not forward browser cookies, long-lived credentials, or shared secrets in
+metadata. It is stored with the Office connection and appears in signed,
+base64url-encoded JWTs, not encrypted tokens. A query-based `/open` delivery
+also exposes it to URL/history/logging surfaces. Use the supported signed
+ticket flow and redact sensitive context from diagnostics; signing is not
+encryption. See [customer authorization](security.md#authorize-customer-access).
+
+## Check access before opening and on every operation
+
+For system adapters, Office's document-open flow requires `info` after a
+successful internal `start`, and checks that the document exists and is
+readable before proceeding to the editor. HTTP Storage customers implement
+HTTP `info`, `get`, `put`, and the other Provider operations, not Java `start`.
+The Provider must validate the customer session and read permission in `info`.
+Recheck current permissions on `get`, `put`, and every later operation; an
+earlier successful open does not grant permanent authorization. Return a safe
+denial or missing-file response before storage access when checks fail.
 
 ## Implement the endpoint catalog
 

@@ -61,7 +61,6 @@ def signed_list(path: str) -> list[str]:
         "GET",
         path,
         headers={
-            "X-TFO-Storage-Adapter": adapter,
             "X-TFO-Storage-Request-JWT": f"{header}.{claims}.{signature}",
         },
     )

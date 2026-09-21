@@ -32,9 +32,12 @@ Stop another example server using port `8080` before starting this one.
 .venv/bin/python -m unittest -v
 ```
 
-The expected result is four passing tests. The suite exercises all nine storage
+The expected result is nine passing tests. The suite exercises all nine storage
 operations against real files, a complete save, fixed download length, replay
 rejection, traversal rejection, and root protection.
+It also checks header-independent adapter selection, forged tokens, all request
+bindings, verified metadata exposure, UTF-16/depth limits, and valid numeric
+metadata that expands beyond Office's original input byte limit.
 
 The example follows the usual FastAPI application-factory and dependency
 injection layout:
@@ -54,6 +57,40 @@ injection layout:
 Production integrations can replace `LocalDirectoryStorageService` while
 retaining the router, Pydantic models, security verifier, and exception
 handlers.
+
+## Use verified customer context
+
+In `app/api/routes.py`, capture the existing verifier call's return value
+before capability selection or storage dispatch:
+
+```python
+verified_request = verifier.verify(
+    request.headers.get("X-TFO-Storage-Request-JWT"),
+    request.method,
+    route.raw_path,
+    request.headers.get("Content-Type"),
+    body.length,
+    body.sha256,
+)
+client_metadata = verified_request.get("client_metadata")
+# Apply your customer session/document/operation policy here before proceeding.
+```
+
+`verify` returns the signed request as `dict[str, Any]` only after signature,
+binding, metadata-structure, and replay checks. Metadata is a dictionary when
+present; `.get` returns `None` when omitted. Supplied null/non-object metadata
+is rejected. The sample route does not implement customer-session authorization.
+Validate your required metadata fields and query your own trusted session store
+for current document and operation permissions before accessing storage.
+
+The token is limited to 8,192 UTF-8 bytes before parsing. Its unverified adapter
+claim selects only the configured key, and legacy adapter headers are ignored.
+Metadata uses UTF-16 code-unit counts, not Python `len`, and Java blank-key
+semantics, not `str.isspace`. Office's 4,096-byte original input limit is not a
+second cap on the JWT metadata object. See [delivery and limits](protocol.md#pass-customer-context)
+and [customer authorization](security.md#authorize-customer-access).
+
+## Preserve response framing
 
 The router uses `JSONResponse` for bounded INFO/LIST models; Starlette renders
 the bytes at construction, rejects either body above 5 MiB, and publishes their
