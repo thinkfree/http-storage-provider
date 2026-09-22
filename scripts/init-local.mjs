@@ -13,7 +13,7 @@ try {
   // Create the first local configuration below.
 }
 
-const adapter = "local-directory";
+const adapter = "http-remote-directory";
 const secret = randomBytes(32).toString("base64url");
 const storageRoot = path.resolve("storage");
 const configuration = [

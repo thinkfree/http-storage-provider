@@ -33,7 +33,6 @@ async function signedList(rawPath) {
     .digest("base64url");
   const response = await fetch(`http://${host}:${port}${rawPath}`, {
     headers: {
-      "X-TFO-Storage-Adapter": adapter,
       "X-TFO-Storage-Request-JWT": `${header}.${claims}.${signature}`,
     },
   });
@@ -44,12 +43,12 @@ async function signedList(rawPath) {
   return (await response.json()).entries.map((entry) => entry.name);
 }
 
-const rootNames = await signedList("/tfo-storage/v1/list");
+const rootNames = await signedList("/tfo-http-storage/v1/list");
 for (const expected of ["Welcome.txt", "samples"]) {
   if (!rootNames.includes(expected))
     throw new Error(`Root list did not contain ${expected}`);
 }
-const sampleNames = await signedList("/tfo-storage/v1/samples/list");
+const sampleNames = await signedList("/tfo-http-storage/v1/samples/list");
 for (const expected of ["sample.docx", "sample.xlsx", "sample.pptx"]) {
   if (!sampleNames.includes(expected))
     throw new Error(`Sample list did not contain ${expected}`);

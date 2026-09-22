@@ -25,7 +25,7 @@ from .dependencies import (
 )
 
 router = APIRouter()
-PROTOCOL_PREFIX = "/tfo-storage/v1"
+PROTOCOL_PREFIX = "/tfo-http-storage/v1"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 NO_STORE = {"Cache-Control": "no-store"}
 
@@ -105,7 +105,6 @@ async def storage_request(
     try:
         verifier.verify(
             request.headers.get("X-TFO-Storage-Request-JWT"),
-            request.headers.get("X-TFO-Storage-Adapter"),
             request.method,
             route.raw_path,
             request.headers.get("Content-Type"),
@@ -128,9 +127,16 @@ async def storage_request(
 def parse_route(
     request: Request, storage: LocalDirectoryStorageService
 ) -> StorageRoute:
-    raw_path = request.scope.get("raw_path", request.url.path.encode("ascii")).decode(
-        "ascii"
-    )
+    # JWTs bind the exact percent-encoded request target. The decoded URL cannot
+    # reconstruct it, and eagerly encoding a decoded Korean path raises a 500
+    # even when ASGI already supplied the correct raw bytes.
+    raw_path_bytes = request.scope.get("raw_path")
+    if not isinstance(raw_path_bytes, bytes):
+        raise StorageError(400, "The original encoded path is required")
+    try:
+        raw_path = raw_path_bytes.decode("ascii")
+    except UnicodeDecodeError:
+        raise StorageError(400, "The request path must be percent-encoded") from None
     raw_target = (
         raw_path if not request.url.query else f"{raw_path}?{request.url.query}"
     )
@@ -236,9 +242,9 @@ def execute(
     if route.operation is Operation.PUT:
         if body.staging_file is None:
             raise StorageError(400, "A document path is required")
-        revision = storage.save(route.segments, body.staging_file)
+        doc_id = storage.save(route.segments, body.staging_file)
         body.committed = True
-        return PlainTextResponse(revision, headers=NO_STORE)
+        return JSONResponse({"docId": doc_id}, headers=NO_STORE)
     if route.operation in {Operation.LOCK, Operation.UNLOCK}:
         value = parse_model(LockRequest, body.content, "owner")
         if route.operation is Operation.LOCK:

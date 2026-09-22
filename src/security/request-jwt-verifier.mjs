@@ -11,24 +11,21 @@ export class RequestJwtVerifier {
     this.stateStore = stateStore;
   }
 
+  // Returns the signed request only after verification and replay consumption.
   async verify(request, route, body) {
     const token = oneHeader(request, "x-tfo-storage-request-jwt");
-    if (typeof token !== "string" || Buffer.byteLength(token, "utf8") > 5120) {
+    if (typeof token !== "string" || Buffer.byteLength(token, "utf8") > 8192) {
       throw new RequestAuthenticationError();
     }
-    if (
-      !constantEquals(
-        oneHeader(request, "x-tfo-storage-adapter"),
-        this.config.adapter,
-      )
-    ) {
-      throw new RequestAuthenticationError();
-    }
-
     const parts = token.split(".");
     if (parts.length !== 3) throw new RequestAuthenticationError();
     const header = parseJsonPart(parts[0]);
     const claims = parseJsonPart(parts[1]);
+    // Unverified input selects only an existing configured key, never authority.
+    const adapter = claims.request?.adapter;
+    if (typeof adapter !== "string" || adapter !== this.config.adapter) {
+      throw new RequestAuthenticationError();
+    }
     if (header.alg !== "HS256" || header.typ !== JWT_TYPE) {
       throw new RequestAuthenticationError();
     }
@@ -68,6 +65,8 @@ export class RequestJwtVerifier {
       !constantEquals(signedRequest.method, request.method) ||
       !constantEquals(signedRequest.path, route.rawPath) ||
       signedRequest.content_length !== body.length ||
+      (Object.hasOwn(signedRequest, "content_type") &&
+        typeof signedRequest.content_type !== "string") ||
       !constantEquals(signedRequest.content_sha256, body.sha256) ||
       !constantEquals(
         signedRequest.content_type ?? "",
@@ -76,8 +75,45 @@ export class RequestJwtVerifier {
     ) {
       throw new RequestAuthenticationError();
     }
+    if (Object.hasOwn(signedRequest, "client_metadata")) {
+      validateMetadata(signedRequest.client_metadata);
+    }
     await this.stateStore.consumeRequestId(claims.jti, claims.exp);
+    // Transit integrity is not customer authorization. Only expose verified data.
+    return signedRequest;
   }
+}
+
+function validateMetadata(metadata) {
+  // TFO caps the /open JSON input at 4096 bytes, not its JWT reserialization.
+  // The incoming JWT is capped at 8192 bytes above; root depth 0, max depth 8.
+  // Match TFO's Java String.length(): values 512, nonblank keys 64 UTF-16 units.
+  if (
+    metadata === null ||
+    typeof metadata !== "object" ||
+    Array.isArray(metadata)
+  )
+    throw new RequestAuthenticationError();
+  function visit(value, depth) {
+    if (depth > 8 || (typeof value === "string" && value.length > 512)) {
+      throw new RequestAuthenticationError();
+    }
+    if (value !== null && typeof value === "object") {
+      for (const [key, child] of Object.entries(value)) {
+        // Java String.isBlank()/Character.isWhitespace, not JavaScript trim().
+        if (
+          key.length > 64 ||
+          /^[\u0009-\u000d\u001c-\u0020\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]*$/u.test(
+            key,
+          )
+        ) {
+          throw new RequestAuthenticationError();
+        }
+        visit(child, depth + 1);
+      }
+    }
+  }
+  visit(metadata, 0);
 }
 
 export function oneHeader(request, name) {
@@ -109,8 +145,9 @@ function parseJsonPart(part) {
 }
 
 function constantEquals(left, right) {
-  const a = Buffer.from(String(left ?? ""), "utf8");
-  const b = Buffer.from(String(right ?? ""), "utf8");
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const a = Buffer.from(left, "utf8");
+  const b = Buffer.from(right, "utf8");
   return a.length === b.length && timingSafeEqual(a, b);
 }
 

@@ -36,6 +36,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class HttpStorageProviderApplicationTest {
@@ -83,10 +84,49 @@ class HttpStorageProviderApplicationTest {
     }
 
     @Test
+    void retiredProtocolRouteDoesNotExposeDocuments() throws Exception {
+        String path = "/tfo-storage/v1/contracts/sample%20document.docx/get";
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("X-TFO-Storage-Request-JWT", token("GET", path, new byte[0], null)).GET().build();
+        assertEquals(404, client.send(request, HttpResponse.BodyHandlers.ofByteArray()).statusCode());
+    }
+
+    @Test
+    void legacyAdapterHeadersAreIgnored() throws Exception {
+        String path = "/tfo-http-storage/v1/contracts/list";
+        for (String adapter : List.of(ADAPTER, "other-adapter")) {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                    .header("X-TFO-Storage-Request-JWT", token("GET", path, new byte[0], null))
+                    .header("X-TFO-Storage-Adapter", adapter).GET().build();
+            assertEquals(200, client.send(request, HttpResponse.BodyHandlers.ofByteArray()).statusCode());
+        }
+    }
+
+    @Test
+    void putReturnsStableJsonDocumentIdentity() throws Exception {
+        var ids = new java.util.ArrayList<String>();
+        String[] paths = {"contracts/saved document.docx", "contracts/saved document.docx", "contracts/other.docx"};
+        String[] contents = {"first", "changed contents", "changed contents"};
+        for (int index = 0; index < paths.length; index++) {
+            HttpResponse<byte[]> result = send("PUT",
+                    "/tfo-http-storage/v1/" + paths[index].replace(" ", "%20") + "/put",
+                    contents[index].getBytes(StandardCharsets.UTF_8), "application/octet-stream", null);
+            assertEquals(200, result.statusCode());
+            assertFixedResponse(result, "application/json");
+            JsonNode body = JSON.readTree(result.body());
+            assertEquals(1, body.size());
+            assertEquals(sha256(paths[index].getBytes(StandardCharsets.UTF_8)), body.get("docId").textValue());
+            ids.add(body.get("docId").textValue());
+        }
+        assertEquals(ids.get(0), ids.get(1));
+        assertNotEquals(ids.get(1), ids.get(2));
+    }
+
+    @Test
     void servesTheCompleteStorageLifecycle() throws Exception {
         String file = "contracts/sample%20document.docx";
 
-        HttpResponse<byte[]> info = send("GET", "/tfo-storage/v1/" + file + "/info", null, null, null);
+        HttpResponse<byte[]> info = send("GET", "/tfo-http-storage/v1/" + file + "/info", null, null, null);
         assertEquals(200, info.statusCode());
         assertFixedResponse(info, "application/json");
         JsonNode entry = JSON.readTree(info.body());
@@ -94,52 +134,52 @@ class HttpStorageProviderApplicationTest {
         assertEquals(8, entry.get("size").longValue());
         assertEquals("file", entry.get("type").textValue());
 
-        HttpResponse<byte[]> list = send("GET", "/tfo-storage/v1/contracts/list", null, null, null);
+        HttpResponse<byte[]> list = send("GET", "/tfo-http-storage/v1/contracts/list", null, null, null);
         assertEquals(200, list.statusCode());
         assertFixedResponse(list, "application/json");
         assertEquals("sample document.docx",
                 JSON.readTree(list.body()).get("entries").get(0).get("name").textValue());
 
-        HttpResponse<byte[]> get = send("GET", "/tfo-storage/v1/" + file + "/get", null, null, null);
+        HttpResponse<byte[]> get = send("GET", "/tfo-http-storage/v1/" + file + "/get", null, null, null);
         assertEquals(200, get.statusCode());
         assertFixedResponse(get, "application/octet-stream");
         assertArrayEquals("original".getBytes(StandardCharsets.UTF_8), get.body());
         assertEquals("8", get.headers().firstValue("Content-Length").orElseThrow());
 
         byte[] lockBody = "{\"owner\":\"office-runtime-1\"}".getBytes(StandardCharsets.UTF_8);
-        assertEquals(204, send("POST", "/tfo-storage/v1/" + file + "/lock",
+        assertEquals(204, send("POST", "/tfo-http-storage/v1/" + file + "/lock",
                 lockBody, "application/json", null).statusCode());
 
         byte[] saved = "saved-document".getBytes(StandardCharsets.UTF_8);
-        assertEquals(200, send("PUT", "/tfo-storage/v1/" + file + "/put",
+        assertEquals(200, send("PUT", "/tfo-http-storage/v1/" + file + "/put",
                 saved, "application/octet-stream", null).statusCode());
         assertEquals("saved-document", Files.readString(storageRoot.resolve("contracts/sample document.docx")));
 
-        assertEquals(204, send("POST", "/tfo-storage/v1/" + file + "/unlock",
+        assertEquals(204, send("POST", "/tfo-http-storage/v1/" + file + "/unlock",
                 lockBody, "application/json", null).statusCode());
-        assertEquals(204, send("POST", "/tfo-storage/v1/contracts/mkdir",
+        assertEquals(204, send("POST", "/tfo-http-storage/v1/contracts/mkdir",
                 "{\"name\":\"archive\"}".getBytes(StandardCharsets.UTF_8), "application/json", null).statusCode());
-        assertEquals(204, send("POST", "/tfo-storage/v1/" + file + "/rename",
+        assertEquals(204, send("POST", "/tfo-http-storage/v1/" + file + "/rename",
                 "{\"name\":\"renamed.docx\"}".getBytes(StandardCharsets.UTF_8),
                 "application/json", null).statusCode());
-        assertEquals(204, send("DELETE", "/tfo-storage/v1/contracts/renamed.docx/delete",
+        assertEquals(204, send("DELETE", "/tfo-http-storage/v1/contracts/renamed.docx/delete",
                 null, null, null).statusCode());
-        assertEquals(204, send("DELETE", "/tfo-storage/v1/contracts/archive/delete",
+        assertEquals(204, send("DELETE", "/tfo-http-storage/v1/contracts/archive/delete",
                 null, null, null).statusCode());
         assertFalse(Files.exists(storageRoot.resolve("contracts/renamed.docx")));
     }
 
     @Test
     void rejectsReplayAndPathTraversal() throws Exception {
-        String path = "/tfo-storage/v1/contracts/sample%20document.docx/info";
+        String path = "/tfo-http-storage/v1/contracts/sample%20document.docx/info";
         String token = token("GET", path, new byte[0], null);
         assertEquals(200, send("GET", path, null, null, token).statusCode());
         assertEquals(401, send("GET", path, null, null, token).statusCode());
-        assertEquals(400, send("GET", "/tfo-storage/v1/%2E%2E/info", null, null, null).statusCode());
-        assertEquals(400, send("DELETE", "/tfo-storage/v1/delete", null, null, null).statusCode());
+        assertEquals(400, send("GET", "/tfo-http-storage/v1/%2E%2E/info", null, null, null).statusCode());
+        assertEquals(400, send("DELETE", "/tfo-http-storage/v1/delete", null, null, null).statusCode());
         assertEquals(400, send(
                 "POST",
-                "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+                "/tfo-http-storage/v1/contracts/sample%20document.docx/lock",
                 "{\"owner\":\"\"}".getBytes(StandardCharsets.UTF_8),
                 "application/json",
                 null
@@ -152,19 +192,19 @@ class HttpStorageProviderApplicationTest {
         startApplication("list,put,lock,unlock,mkdir,rename,delete");
         record UnsupportedCase(String operation, String method, String path, byte[] body, String contentType) {}
         List<UnsupportedCase> cases = List.of(
-                new UnsupportedCase("LIST", "GET", "/tfo-storage/v1/contracts/list", null, null),
-                new UnsupportedCase("PUT", "PUT", "/tfo-storage/v1/contracts/new.docx/put",
+                new UnsupportedCase("LIST", "GET", "/tfo-http-storage/v1/contracts/list", null, null),
+                new UnsupportedCase("PUT", "PUT", "/tfo-http-storage/v1/contracts/new.docx/put",
                         "must-not-be-saved".getBytes(StandardCharsets.UTF_8), "application/octet-stream"),
-                new UnsupportedCase("LOCK", "POST", "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+                new UnsupportedCase("LOCK", "POST", "/tfo-http-storage/v1/contracts/sample%20document.docx/lock",
                         "{\"owner\":\"office-runtime-1\"}".getBytes(StandardCharsets.UTF_8), "application/json"),
-                new UnsupportedCase("UNLOCK", "POST", "/tfo-storage/v1/contracts/sample%20document.docx/unlock",
+                new UnsupportedCase("UNLOCK", "POST", "/tfo-http-storage/v1/contracts/sample%20document.docx/unlock",
                         "{\"owner\":\"office-runtime-1\"}".getBytes(StandardCharsets.UTF_8), "application/json"),
-                new UnsupportedCase("MKDIR", "POST", "/tfo-storage/v1/contracts/mkdir",
+                new UnsupportedCase("MKDIR", "POST", "/tfo-http-storage/v1/contracts/mkdir",
                         "{\"name\":\"must-not-exist\"}".getBytes(StandardCharsets.UTF_8), "application/json"),
-                new UnsupportedCase("RENAME", "POST", "/tfo-storage/v1/contracts/sample%20document.docx/rename",
+                new UnsupportedCase("RENAME", "POST", "/tfo-http-storage/v1/contracts/sample%20document.docx/rename",
                         "{\"name\":\"must-not-exist.docx\"}".getBytes(StandardCharsets.UTF_8), "application/json"),
                 new UnsupportedCase("DELETE", "DELETE",
-                        "/tfo-storage/v1/contracts/sample%20document.docx/delete", null, null)
+                        "/tfo-http-storage/v1/contracts/sample%20document.docx/delete", null, null)
         );
 
         for (UnsupportedCase item : cases) {
@@ -182,7 +222,7 @@ class HttpStorageProviderApplicationTest {
                 storageRoot.resolve("contracts/sample document.docx")));
         assertFalse(Files.exists(storageRoot.resolve("contracts/new.docx")));
         assertFalse(Files.exists(storageRoot.resolve("contracts/must-not-exist")));
-        assertEquals(401, send("GET", "/tfo-storage/v1/contracts/list",
+        assertEquals(401, send("GET", "/tfo-http-storage/v1/contracts/list",
                 null, null, "not-a-jwt").statusCode());
     }
 
@@ -201,9 +241,9 @@ class HttpStorageProviderApplicationTest {
     void rejectsStoredDocumentsAboveTheConfiguredLimit() throws Exception {
         Path oversized = storageRoot.resolve("contracts/oversized.docx");
         Files.write(oversized, new byte[1024 * 1024 + 1]);
-        assertEquals(413, send("GET", "/tfo-storage/v1/contracts/oversized.docx/info",
+        assertEquals(413, send("GET", "/tfo-http-storage/v1/contracts/oversized.docx/info",
                 null, null, null).statusCode());
-        assertEquals(413, send("GET", "/tfo-storage/v1/contracts/oversized.docx/get",
+        assertEquals(413, send("GET", "/tfo-http-storage/v1/contracts/oversized.docx/get",
                 null, null, null).statusCode());
     }
 
@@ -228,7 +268,6 @@ class HttpStorageProviderApplicationTest {
                 ? token(method, rawPath, actualBody, contentType)
                 : explicitToken;
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + rawPath))
-                .header("X-TFO-Storage-Adapter", ADAPTER)
                 .header("X-TFO-Storage-Request-JWT", requestToken);
         if (contentType != null) builder.header("Content-Type", contentType);
         HttpRequest.BodyPublisher publisher = body == null

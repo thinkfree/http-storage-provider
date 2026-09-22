@@ -44,7 +44,7 @@ protocol paths cannot select it.
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `TFO_STORAGE_ADAPTER` | Yes | Generated as `local-directory` by `npm run init` | Exact immutable Office adapter name. |
+| `TFO_STORAGE_ADAPTER` | Yes | Generated as `http-remote-directory` by `npm run init` | Exact immutable Office adapter name. |
 | `TFO_STORAGE_REQUEST_JWT_SECRET` | Yes | Random 256-bit value from `npm run init` | Shared HS256 request secret, at least 32 UTF-8 bytes. |
 | `TFO_STORAGE_ROOT` | No | `./storage` | Isolated local directory exposed by the example. |
 | `TFO_STORAGE_ROOT_NAME` | No | `Documents` | Display name returned for root metadata. |
@@ -62,15 +62,43 @@ same buffer with its exact byte length. GET obtains the file size before
 headers and pipelines the file stream with that fixed `Content-Length`. Do not
 replace either response with Express chunked streaming.
 
+## Use verified customer context
+
+In `storage-router.mjs`, capture the existing verifier call's return value
+before capability selection or storage dispatch:
+
+```js
+const verifiedRequest = await requestVerifier.verify(request, route, requestBody);
+const clientMetadata = verifiedRequest.client_metadata;
+// Apply your customer session/document/operation policy here before proceeding.
+```
+
+This returns the signed `request` object only after signature, exact HTTP
+bindings, metadata structure, and replay consumption succeed. Metadata is
+`undefined` when omitted. Do not decode the token again for authorization.
+The existing sample router does not implement customer-session authorization;
+your integration must validate the metadata shape and look up any session
+reference in its own trusted store before accessing documents.
+
+The verifier bounds the original JWT at 8,192 UTF-8 bytes, uses unverified
+`request.adapter` only to select its registered key, and ignores any legacy
+adapter header. It checks metadata depth and Java-compatible key/value limits;
+the 4,096-byte original input limit belongs to Office, not to a reserialized
+metadata object. See [limits and delivery](protocol.md#pass-customer-context)
+and [authorization responsibilities](security.md#authorize-customer-access).
+
 ## Run the tests
 
 ```bash
 npm test
 ```
 
-The expected result is six passing tests. They cover every operation, a real
+The expected result is ten passing tests. They cover every operation, a real
 save to disk, fixed download length, replay rejection, body digest mismatch,
 root deletion, traversal, and symbolic-link containment.
+They also cover absent/mismatched legacy headers, unknown/malformed adapters,
+forged signatures, verified metadata exposure, UTF-16/depth boundaries, and
+valid metadata expansion beyond the Office input byte limit.
 
 ## Run the container
 

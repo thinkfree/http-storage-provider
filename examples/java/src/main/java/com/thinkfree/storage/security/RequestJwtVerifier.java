@@ -30,9 +30,9 @@ public class RequestJwtVerifier {
         this.stateStore = stateStore;
     }
 
-    public void verify(
+    /** Returns the signed request only after verification and replay consumption. */
+    public Map<String, Object> verify(
             String token,
-            String adapterHeader,
             String method,
             String rawPath,
             String contentType,
@@ -40,14 +40,19 @@ public class RequestJwtVerifier {
             String contentSha256
     ) {
         try {
-            require(token != null && token.getBytes(StandardCharsets.UTF_8).length <= 5_120);
-            require(constantEquals(adapterHeader, properties.adapter()));
+            require(token != null && token.getBytes(StandardCharsets.UTF_8).length <= 8_192);
             SignedJWT jwt = SignedJWT.parse(token);
+            // Unverified input selects only an existing configured key, never authority.
+            Map<String, Object> candidate = jwt.getJWTClaimsSet().getJSONObjectClaim("request");
+            require(candidate != null && candidate.get("adapter") instanceof String);
+            require(constantEquals(candidate.get("adapter"), properties.adapter()));
             require(JWSAlgorithm.HS256.equals(jwt.getHeader().getAlgorithm()));
             require(TOKEN_TYPE.equals(jwt.getHeader().getType()));
             require(jwt.verify(new MACVerifier(properties.requestJwtSecret().getBytes(StandardCharsets.UTF_8))));
 
             JWTClaimsSet claims = jwt.getJWTClaimsSet();
+            Map<String, Object> rawClaims = jwt.getPayload().toJSONObject();
+            require(isInteger(rawClaims.get("iat")) && isInteger(rawClaims.get("exp")));
             Instant now = Instant.now();
             Instant issuedAt = claims.getIssueTime() == null ? null : claims.getIssueTime().toInstant();
             Instant expiresAt = claims.getExpirationTime() == null ? null : claims.getExpirationTime().toInstant();
@@ -63,11 +68,20 @@ public class RequestJwtVerifier {
             require(constantEquals(properties.adapter(), signedRequest.get("adapter")));
             require(constantEquals(method, signedRequest.get("method")));
             require(constantEquals(rawPath, signedRequest.get("path")));
-            require(signedRequest.get("content_length") instanceof Number);
+            require(isInteger(signedRequest.get("content_length")));
             require(((Number) signedRequest.get("content_length")).longValue() == contentLength);
             require(constantEquals(contentSha256, signedRequest.get("content_sha256")));
-            require(constantEquals(normalize(contentType), normalize(signedRequest.get("content_type"))));
+            Object signedContentType = signedRequest.getOrDefault("content_type", "");
+            require(signedContentType instanceof String);
+            require(constantEquals(contentType == null ? "" : contentType, signedContentType));
+            if (signedRequest.containsKey("client_metadata")) {
+                Object metadata = signedRequest.get("client_metadata");
+                require(metadata instanceof Map);
+                validateMetadata(metadata, 0);
+            }
             stateStore.consumeRequestId(claims.getJWTID(), expiresAt);
+            // Verified transit integrity does not confer customer authorization.
+            return signedRequest;
         } catch (RequestAuthenticationException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -75,8 +89,30 @@ public class RequestJwtVerifier {
         }
     }
 
+    private static boolean isInteger(Object value) {
+        return value instanceof Long || value instanceof Integer;
+    }
+
+    private static void validateMetadata(Object value, int depth) {
+        // TFO caps /open JSON input at 4096 bytes, not its JWT reserialization.
+        // Incoming JWT is capped at 8192 bytes above; root depth 0, max depth 8.
+        // Match TFO: values 512, nonblank keys 64 UTF-16 units (String.length()).
+        require(depth <= 8);
+        if (value instanceof String text) {
+            require(text.length() <= 512);
+        } else if (value instanceof Map<?, ?> map) {
+            for (var entry : map.entrySet()) {
+                String key = (String) entry.getKey();
+                require(!key.isBlank() && key.length() <= 64);
+                validateMetadata(entry.getValue(), depth + 1);
+            }
+        } else if (value instanceof List<?> list) {
+            for (Object child : list) validateMetadata(child, depth + 1);
+        }
+    }
+
     private static String normalize(Object value) {
-        return value == null || value.toString().isBlank() ? "" : value.toString();
+        return value == null ? "" : value.toString();
     }
 
     private static boolean constantEquals(Object left, Object right) {

@@ -69,7 +69,7 @@ public class StorageController {
      * request values are captured rather than after MVC path normalization.
      */
     @RequestMapping(
-            value = "/tfo-storage/v1/**",
+            value = "/tfo-http-storage/v1/**",
             method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE}
     )
     public ResponseEntity<?> handle(HttpServletRequest request) throws Exception {
@@ -78,7 +78,6 @@ public class StorageController {
         try {
             requestVerifier.verify(
                     request.getHeader("X-TFO-Storage-Request-JWT"),
-                    request.getHeader("X-TFO-Storage-Adapter"),
                     request.getMethod(),
                     route.rawPath(),
                     request.getHeader(HttpHeaders.CONTENT_TYPE),
@@ -111,11 +110,9 @@ public class StorageController {
             case LIST -> jsonResponse(HttpStatus.OK, storageService.list(route.path()));
             case GET -> download(route);
             case PUT -> {
-                String revision = storageService.save(route.path(), body.stagedFile());
+                String docId = storageService.save(route.path(), body.stagedFile());
                 body.markCommitted();
-                yield noStore(ResponseEntity.ok())
-                        .contentType(MediaType.TEXT_PLAIN)
-                        .body(revision);
+                yield jsonResponse(HttpStatus.OK, java.util.Map.of("docId", docId));
             }
             case LOCK -> {
                 storageService.lock(route.path(), lockRequest(body.bytes()).owner());
