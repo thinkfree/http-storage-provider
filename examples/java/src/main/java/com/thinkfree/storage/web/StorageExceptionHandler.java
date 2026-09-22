@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.nio.file.AccessDeniedException;
 import java.nio.file.DirectoryNotEmptyException;
@@ -30,7 +31,7 @@ public class StorageExceptionHandler {
         return response(exception.status(), exception.getMessage());
     }
 
-    @ExceptionHandler(NoSuchFileException.class)
+    @ExceptionHandler({NoSuchFileException.class, NoResourceFoundException.class})
     ResponseEntity<String> notFound() {
         return response(HttpStatus.NOT_FOUND, "Not found");
     }

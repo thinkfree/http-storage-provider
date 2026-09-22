@@ -44,7 +44,7 @@ protocol paths cannot select it.
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `TFO_STORAGE_ADAPTER` | Yes | Generated as `local-directory` by `npm run init` | Exact immutable Office adapter name. |
+| `TFO_STORAGE_ADAPTER` | Yes | Generated as `http-remote-directory` by `npm run init` | Exact immutable Office adapter name. |
 | `TFO_STORAGE_REQUEST_JWT_SECRET` | Yes | Random 256-bit value from `npm run init` | Shared HS256 request secret, at least 32 UTF-8 bytes. |
 | `TFO_STORAGE_ROOT` | No | `./storage` | Isolated local directory exposed by the example. |
 | `TFO_STORAGE_ROOT_NAME` | No | `Documents` | Display name returned for root metadata. |

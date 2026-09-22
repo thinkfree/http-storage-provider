@@ -25,7 +25,7 @@ from .dependencies import (
 )
 
 router = APIRouter()
-PROTOCOL_PREFIX = "/tfo-storage/v1"
+PROTOCOL_PREFIX = "/tfo-http-storage/v1"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 NO_STORE = {"Cache-Control": "no-store"}
 
@@ -127,9 +127,16 @@ async def storage_request(
 def parse_route(
     request: Request, storage: LocalDirectoryStorageService
 ) -> StorageRoute:
-    raw_path = request.scope.get("raw_path", request.url.path.encode("ascii")).decode(
-        "ascii"
-    )
+    # JWTs bind the exact percent-encoded request target. The decoded URL cannot
+    # reconstruct it, and eagerly encoding a decoded Korean path raises a 500
+    # even when ASGI already supplied the correct raw bytes.
+    raw_path_bytes = request.scope.get("raw_path")
+    if not isinstance(raw_path_bytes, bytes):
+        raise StorageError(400, "The original encoded path is required")
+    try:
+        raw_path = raw_path_bytes.decode("ascii")
+    except UnicodeDecodeError:
+        raise StorageError(400, "The request path must be percent-encoded") from None
     raw_target = (
         raw_path if not request.url.query else f"{raw_path}?{request.url.query}"
     )

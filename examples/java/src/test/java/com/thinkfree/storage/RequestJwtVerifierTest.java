@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class RequestJwtVerifierTest {
     private static final String ADAPTER = "customer-storage-a";
     private static final String SECRET = "java-verifier-test-secret-at-least-32-bytes";
-    private static final String PATH = "/prefix/tfo-storage/v1/sample%20file/info";
+    private static final String PATH = "/prefix/tfo-http-storage/v1/sample%20file/info";
     private static final ObjectMapper JSON = new ObjectMapper();
     @TempDir Path root;
     private RequestJwtVerifier verifier;

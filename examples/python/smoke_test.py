@@ -74,10 +74,10 @@ def signed_list(path: str) -> list[str]:
     return [entry["name"] for entry in json.loads(body)["entries"]]
 
 
-root_names = signed_list("/tfo-storage/v1/list")
+root_names = signed_list("/tfo-http-storage/v1/list")
 if "Welcome.txt" not in root_names or "samples" not in root_names:
     raise SystemExit("Root list did not contain Welcome.txt and samples")
-sample_names = signed_list("/tfo-storage/v1/samples/list")
+sample_names = signed_list("/tfo-http-storage/v1/samples/list")
 for expected in ("sample.docx", "sample.xlsx", "sample.pptx"):
     if expected not in sample_names:
         raise SystemExit(f"Sample list did not contain {expected}")
