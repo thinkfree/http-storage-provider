@@ -14,6 +14,11 @@ keeps the code focused on request authentication, path handling, streaming,
 metadata, locking, and the storage lifecycle. Replace the filesystem operations
 with your S3, database, or storage service implementation for production.
 
+The example adapter is named `http-remote-directory` because Office accesses the
+Provider over HTTP. The example server stores files in its own local directory;
+it is separate from Host Storage on the Office server. Existing configuration
+files retain their adapter names and secrets when an initialization script runs again.
+
 The Provider endpoints use `/tfo-http-storage/v1`. Use an Office adapter build with the same
 protocol prefix; Office `.052` predates this path. The Provider base URL does not include the
 protocol prefix. JWT headers and claim identifiers remain unchanged.
@@ -34,7 +39,7 @@ npm start
 the three values needed by Office:
 
 ```text
-Adapter name: local-directory
+Adapter name: http-remote-directory
 Request JWT secret: <generated 256-bit value>
 Provider base URL: http://127.0.0.1:8080
 ```
@@ -48,7 +53,7 @@ The expected startup result is:
 ```text
 Thinkfree HTTP Storage Provider listening on 127.0.0.1:8080
 Storage root: .../http-storage-provider/storage
-Adapter: local-directory
+Adapter: http-remote-directory
 ```
 
 ## Connect Self-hosted Office
@@ -60,7 +65,7 @@ host; use the Provider's private DNS name or HTTPS origin instead.
 1. Open the restricted Self-hosted Office administrator.
 2. Open **External linkage → Adapter List** and select **Add**.
 3. Select **HTTP Storage**.
-4. Enter `local-directory` as the adapter name.
+4. Enter `http-remote-directory` as the adapter name.
 5. Enter the reachable Provider base URL as `endpointUrl`.
 6. Enter the generated value as `requestJwtSecret`.
 7. Register and enable the adapter.
@@ -70,7 +75,7 @@ host; use the Provider's private DNS name or HTTPS origin instead.
 You can also open the sample directly after replacing the Office origin:
 
 ```text
-https://office.example.com/cloud-office/api/local-directory/samples/sample.docx/open
+https://office.example.com/cloud-office/api/http-remote-directory/samples/sample.docx/open
   ?app=WORD_EDITOR
   &docId=welcome01
   &user_id=example-user
@@ -107,7 +112,7 @@ cd examples/java
 The script creates an ignored `.env.java` once, prints the adapter name,
 generated request JWT secret, and Provider base URL, builds the executable JAR,
 and starts the server. Use the printed values in the same Office form. The Java
-adapter name defaults to `local-directory-java`.
+adapter name defaults to `http-remote-directory-java`.
 
 Read the [Java Provider guide](docs/java.md) for direct Maven commands and code
 ownership boundaries. Read the [Node.js Provider guide](docs/nodejs.md) for the
@@ -128,7 +133,7 @@ cd examples/python
 ```
 
 The first run creates an ignored local configuration and prints the adapter
-name `local-directory-python`, generated request JWT secret, and Provider base
+name `http-remote-directory-python`, generated request JWT secret, and Provider base
 URL. See the [Python Provider guide](docs/python.md) for source and test details.
 
 ## What is implemented

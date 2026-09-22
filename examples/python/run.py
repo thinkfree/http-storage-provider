@@ -21,7 +21,7 @@ else:
         "port": 8080,
         "storageRoot": str(storage_root),
         "rootName": "Documents",
-        "adapter": "local-directory-python",
+        "adapter": "http-remote-directory-python",
         "requestJwtSecret": secrets.token_urlsafe(32),
         "maxDocumentBytes": 314_572_800,
     }

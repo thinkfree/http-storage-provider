@@ -16,7 +16,7 @@ cd examples/python
 The script creates an ignored virtual environment, installs the pinned FastAPI
 and Uvicorn dependencies, and starts the server. The first run creates an
 ignored `.provider-config.json` with the stable adapter name
-`local-directory-python`, a random 256-bit request JWT secret, and port `8080`.
+`http-remote-directory-python`, a random 256-bit request JWT secret, and port `8080`.
 Copy the printed values into the Office HTTP Storage form. The root listing
 immediately contains the tracked Word, Cell, and Show samples below
 `storage/samples/`.
