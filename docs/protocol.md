@@ -8,14 +8,14 @@ For Provider base URL `{BASE_URL}` and document path `{DOCUMENT_PATH}`, Office
 calls:
 
 ```text
-{BASE_URL}/tfo-storage/v1/{ENCODED_DOCUMENT_PATH}/{OPERATION}
+{BASE_URL}/tfo-http-storage/v1/{ENCODED_DOCUMENT_PATH}/{OPERATION}
 ```
 
 Each UTF-8 path segment is percent-encoded independently. The Provider root has
 an empty document path, so its list route is:
 
 ```text
-{BASE_URL}/tfo-storage/v1/list
+{BASE_URL}/tfo-http-storage/v1/list
 ```
 
 The base URL must use HTTP or HTTPS and cannot contain credentials, a query,
@@ -52,7 +52,7 @@ older caller sends it; a mismatch neither selects a key nor overrides the JWT.
   "request": {
     "adapter": "customer-storage-a",
     "method": "PUT",
-    "path": "/office/tfo-storage/v1/contracts/sample.docx/put",
+    "path": "/office/tfo-http-storage/v1/contracts/sample.docx/put",
     "content_type": "application/octet-stream",
     "content_length": 48231,
     "content_sha256": "lowercase-hex-sha256",

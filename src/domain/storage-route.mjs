@@ -1,6 +1,6 @@
 import { StorageError } from "./errors.mjs";
 
-export const PROTOCOL_PREFIX = "/tfo-storage/v1";
+export const PROTOCOL_PREFIX = "/tfo-http-storage/v1";
 export const STATE_DIRECTORY = ".tfo-http-storage-state";
 
 const OPERATIONS = new Map([

@@ -13,6 +13,7 @@ import uuid
 from http.client import HTTPConnection
 from pathlib import Path
 from unittest.mock import Mock
+from urllib.parse import quote
 
 import uvicorn
 from pydantic import ValidationError
@@ -146,12 +147,44 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         self.socket.close()
         self.start_server(unsupported_operations)
 
+    def test_retired_protocol_route_does_not_expose_documents(self) -> None:
+        status, _, _ = self.send(
+            "GET", "/tfo-storage/v1/contracts/sample%20document.docx/get"
+        )
+        self.assertEqual(404, status)
+
+    def test_unicode_document_path_preserves_the_original_signed_target(self) -> None:
+        document = "contracts/계약 2026.docx"
+        (self.root / document).write_bytes(b"original")
+        encoded = quote(f"/tfo-http-storage/v1/{document}", safe="/")
+        status, _, body = self.send("GET", f"{encoded}/info")
+        self.assertEqual(200, status)
+        self.assertEqual(document, json.loads(body)["path"])
+        status, _, body = self.send("GET", f"{encoded}/get")
+        self.assertEqual((200, b"original"), (status, body))
+        status, _, _ = self.send(
+            "PUT", f"{encoded}/put", b"saved", "application/octet-stream"
+        )
+        self.assertEqual(200, status)
+        status, _, body = self.send("GET", f"{encoded}/get")
+        self.assertEqual((200, b"saved"), (status, body))
+        token = sign(
+            "GET",
+            f"{encoded}/get",
+            request_overrides={"path": f"/tfo-http-storage/v1/{document}/get"},
+        )
+        self.assertEqual(401, self.send("GET", f"{encoded}/get", token=token)[0])
+
     def test_rejects_stored_documents_above_the_configured_limit(self) -> None:
         oversized = self.root / "contracts" / "oversized.docx"
         oversized.write_bytes(b"x" * (1024 * 1024 + 1))
-        status, _, _ = self.send("GET", "/tfo-storage/v1/contracts/oversized.docx/info")
+        status, _, _ = self.send(
+            "GET", "/tfo-http-storage/v1/contracts/oversized.docx/info"
+        )
         self.assertEqual(413, status)
-        status, _, _ = self.send("GET", "/tfo-storage/v1/contracts/oversized.docx/get")
+        status, _, _ = self.send(
+            "GET", "/tfo-http-storage/v1/contracts/oversized.docx/get"
+        )
         self.assertEqual(413, status)
 
     def test_document_hard_gate_cannot_be_configured_above_300_mib(self) -> None:
@@ -194,7 +227,7 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         return result
 
     def test_adapter_selection_ignores_legacy_header(self) -> None:
-        path = "/tfo-storage/v1/contracts/list"
+        path = "/tfo-http-storage/v1/contracts/list"
         for adapter in [None, ADAPTER, "other-adapter"]:
             self.assertEqual(200, self.send("GET", path, adapter=adapter)[0])
         for adapter in ["unknown", None, 42, True, [ADAPTER], {"name": ADAPTER}]:
@@ -215,7 +248,7 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         verifier = RequestJwtVerifier(
             Settings(root=self.root, adapter=ADAPTER, request_jwt_secret=SECRET), state
         )
-        path = "/prefix/tfo-storage/v1/sample%20file/info"
+        path = "/prefix/tfo-http-storage/v1/sample%20file/info"
 
         def verify(token):
             return verifier.verify(
@@ -356,7 +389,7 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         ]:
             status, headers, body = self.send(
                 "PUT",
-                f"/tfo-storage/v1/{file.replace(' ', '%20')}/put",
+                f"/tfo-http-storage/v1/{file.replace(' ', '%20')}/put",
                 contents,
                 "application/octet-stream",
             )
@@ -372,17 +405,17 @@ class FastApiProviderApplicationTest(unittest.TestCase):
 
     def test_complete_storage_lifecycle(self) -> None:
         file = "contracts/sample%20document.docx"
-        status, headers, body = self.send("GET", f"/tfo-storage/v1/{file}/info")
+        status, headers, body = self.send("GET", f"/tfo-http-storage/v1/{file}/info")
         self.assertEqual(200, status)
         self.assert_fixed_response(headers, body, "application/json")
         self.assertEqual("contracts/sample document.docx", json.loads(body)["path"])
 
-        status, headers, body = self.send("GET", "/tfo-storage/v1/contracts/list")
+        status, headers, body = self.send("GET", "/tfo-http-storage/v1/contracts/list")
         self.assertEqual(200, status)
         self.assert_fixed_response(headers, body, "application/json")
         self.assertEqual("sample document.docx", json.loads(body)["entries"][0]["name"])
 
-        status, headers, body = self.send("GET", f"/tfo-storage/v1/{file}/get")
+        status, headers, body = self.send("GET", f"/tfo-http-storage/v1/{file}/get")
         self.assertEqual(200, status)
         self.assert_fixed_response(headers, body, "application/octet-stream")
         self.assertEqual("8", headers["content-length"])
@@ -391,15 +424,18 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         lock = b'{"owner":"office-runtime-1"}'
         self.assertEqual(
             204,
-            self.send("POST", f"/tfo-storage/v1/{file}/lock", lock, "application/json")[
-                0
-            ],
+            self.send(
+                "POST", f"/tfo-http-storage/v1/{file}/lock", lock, "application/json"
+            )[0],
         )
         saved = b"saved-document"
         self.assertEqual(
             200,
             self.send(
-                "PUT", f"/tfo-storage/v1/{file}/put", saved, "application/octet-stream"
+                "PUT",
+                f"/tfo-http-storage/v1/{file}/put",
+                saved,
+                "application/octet-stream",
             )[0],
         )
         self.assertEqual(
@@ -409,14 +445,14 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         self.assertEqual(
             204,
             self.send(
-                "POST", f"/tfo-storage/v1/{file}/unlock", lock, "application/json"
+                "POST", f"/tfo-http-storage/v1/{file}/unlock", lock, "application/json"
             )[0],
         )
         self.assertEqual(
             204,
             self.send(
                 "POST",
-                "/tfo-storage/v1/contracts/mkdir",
+                "/tfo-http-storage/v1/contracts/mkdir",
                 b'{"name":"archive"}',
                 "application/json",
             )[0],
@@ -425,16 +461,19 @@ class FastApiProviderApplicationTest(unittest.TestCase):
             204,
             self.send(
                 "POST",
-                f"/tfo-storage/v1/{file}/rename",
+                f"/tfo-http-storage/v1/{file}/rename",
                 b'{"name":"renamed.docx"}',
                 "application/json",
             )[0],
         )
         self.assertEqual(
-            204, self.send("DELETE", "/tfo-storage/v1/contracts/renamed.docx/delete")[0]
+            204,
+            self.send("DELETE", "/tfo-http-storage/v1/contracts/renamed.docx/delete")[
+                0
+            ],
         )
         self.assertEqual(
-            204, self.send("DELETE", "/tfo-storage/v1/contracts/archive/delete")[0]
+            204, self.send("DELETE", "/tfo-http-storage/v1/contracts/archive/delete")[0]
         )
 
     def assert_fixed_response(
@@ -446,17 +485,17 @@ class FastApiProviderApplicationTest(unittest.TestCase):
         self.assertEqual(str(len(body)), headers["content-length"])
 
     def test_replay_and_path_traversal_are_rejected(self) -> None:
-        path = "/tfo-storage/v1/contracts/sample%20document.docx/info"
+        path = "/tfo-http-storage/v1/contracts/sample%20document.docx/info"
         token = sign("GET", path)
         self.assertEqual(200, self.send("GET", path, token=token)[0])
         self.assertEqual(401, self.send("GET", path, token=token)[0])
-        self.assertEqual(400, self.send("GET", "/tfo-storage/v1/%2E%2E/info")[0])
-        self.assertEqual(400, self.send("DELETE", "/tfo-storage/v1/delete")[0])
+        self.assertEqual(400, self.send("GET", "/tfo-http-storage/v1/%2E%2E/info")[0])
+        self.assertEqual(400, self.send("DELETE", "/tfo-http-storage/v1/delete")[0])
         self.assertEqual(
             400,
             self.send(
                 "POST",
-                "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+                "/tfo-http-storage/v1/contracts/sample%20document.docx/lock",
                 b'{"owner":""}',
                 "application/json",
             )[0],
@@ -467,46 +506,46 @@ class FastApiProviderApplicationTest(unittest.TestCase):
     ) -> None:
         self.restart_server("list,put,lock,unlock,mkdir,rename,delete")
         cases = (
-            ("LIST", "GET", "/tfo-storage/v1/contracts/list", None, None),
+            ("LIST", "GET", "/tfo-http-storage/v1/contracts/list", None, None),
             (
                 "PUT",
                 "PUT",
-                "/tfo-storage/v1/contracts/new.docx/put",
+                "/tfo-http-storage/v1/contracts/new.docx/put",
                 b"must-not-be-saved",
                 "application/octet-stream",
             ),
             (
                 "LOCK",
                 "POST",
-                "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+                "/tfo-http-storage/v1/contracts/sample%20document.docx/lock",
                 b'{"owner":"office-runtime-1"}',
                 "application/json",
             ),
             (
                 "UNLOCK",
                 "POST",
-                "/tfo-storage/v1/contracts/sample%20document.docx/unlock",
+                "/tfo-http-storage/v1/contracts/sample%20document.docx/unlock",
                 b'{"owner":"office-runtime-1"}',
                 "application/json",
             ),
             (
                 "MKDIR",
                 "POST",
-                "/tfo-storage/v1/contracts/mkdir",
+                "/tfo-http-storage/v1/contracts/mkdir",
                 b'{"name":"must-not-exist"}',
                 "application/json",
             ),
             (
                 "RENAME",
                 "POST",
-                "/tfo-storage/v1/contracts/sample%20document.docx/rename",
+                "/tfo-http-storage/v1/contracts/sample%20document.docx/rename",
                 b'{"name":"must-not-exist.docx"}',
                 "application/json",
             ),
             (
                 "DELETE",
                 "DELETE",
-                "/tfo-storage/v1/contracts/sample%20document.docx/delete",
+                "/tfo-http-storage/v1/contracts/sample%20document.docx/delete",
                 None,
                 None,
             ),
@@ -536,7 +575,7 @@ class FastApiProviderApplicationTest(unittest.TestCase):
             401,
             self.send(
                 "GET",
-                "/tfo-storage/v1/contracts/list",
+                "/tfo-http-storage/v1/contracts/list",
                 token="not-a-jwt",
             )[0],
         )

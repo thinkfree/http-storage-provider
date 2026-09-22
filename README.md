@@ -14,6 +14,10 @@ keeps the code focused on request authentication, path handling, streaming,
 metadata, locking, and the storage lifecycle. Replace the filesystem operations
 with your S3, database, or storage service implementation for production.
 
+The Provider endpoints use `/tfo-http-storage/v1`. Use an Office adapter build with the same
+protocol prefix; Office `.052` predates this path. The Provider base URL does not include the
+protocol prefix. JWT headers and claim identifiers remain unchanged.
+
 ## Run the Node.js Express Provider
 
 Prerequisites: Git and Node.js 22 or later.
@@ -82,8 +86,8 @@ automated browser context alone does not guarantee that Office has released
 the document lock. The changed document in `storage/samples/` is the expected
 result.
 
-See the production [connection guide](https://www.developers.thinkfree.com/docs/docker/http-storage/)
-and [protocol reference](https://www.developers.thinkfree.com/docs/docker/http-storage-api/)
+See the production [connection guide](https://www.developers.thinkfree.com/docs/office/http-storage/)
+and [protocol reference](https://www.developers.thinkfree.com/docs/api-reference/tfo-http-storage-protocol/)
 for the Office-side workflow.
 
 ## Run the Java Spring Boot Provider
@@ -199,10 +203,8 @@ comma-separated operation list) to run and test the same capability behavior.
 
 The corresponding published Thinkfree Developers pages are:
 
-- [Connect a TFO HTTP Storage Provider](https://www.developers.thinkfree.com/docs/docker/http-storage/)
-- [TFO HTTP Storage endpoint reference](https://www.developers.thinkfree.com/docs/docker/http-storage-api/)
-- [Node.js request verification example](https://www.developers.thinkfree.com/docs/docker/http-storage-nodejs/)
-- [Java request verification example](https://www.developers.thinkfree.com/docs/docker/http-storage-java/)
+- [Connect a TFO HTTP Storage Provider](https://www.developers.thinkfree.com/docs/office/http-storage/)
+- [TFO HTTP Storage endpoint reference](https://www.developers.thinkfree.com/docs/api-reference/tfo-http-storage-protocol/)
 
 ## Verify the repository
 

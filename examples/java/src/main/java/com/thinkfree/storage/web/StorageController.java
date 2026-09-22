@@ -69,7 +69,7 @@ public class StorageController {
      * request values are captured rather than after MVC path normalization.
      */
     @RequestMapping(
-            value = "/tfo-storage/v1/**",
+            value = "/tfo-http-storage/v1/**",
             method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE}
     )
     public ResponseEntity<?> handle(HttpServletRequest request) throws Exception {

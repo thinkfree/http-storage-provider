@@ -14,7 +14,7 @@ import java.util.List;
 /** Parses the raw, signed URI without allowing Spring MVC to normalize document paths. */
 @Component
 public class StorageRouteParser {
-    private static final String PROTOCOL_PREFIX = "/tfo-storage/v1";
+    private static final String PROTOCOL_PREFIX = "/tfo-http-storage/v1";
 
     public StorageRoute parse(HttpServletRequest request) {
         if (request.getQueryString() != null) {

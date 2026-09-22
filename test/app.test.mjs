@@ -133,9 +133,15 @@ async function fixture(run, overrides = {}) {
   }
 }
 
+test("retired protocol route does not expose documents", async () =>
+  fixture(async ({ port }) => {
+    const rawPath = "/tfo-storage/v1/contracts/sample%20document.docx/get";
+    assert.equal((await send(port, { method: "GET", rawPath })).status, 404);
+  }));
+
 test("JWT adapter selects the configured key independently of legacy headers", async () =>
   fixture(async ({ port }) => {
-    const rawPath = "/tfo-storage/v1/contracts/list";
+    const rawPath = "/tfo-http-storage/v1/contracts/list";
     for (const adapter of [undefined, ADAPTER, "other-adapter"]) {
       assert.equal(
         (await send(port, { method: "GET", rawPath, adapter })).status,
@@ -191,7 +197,7 @@ test("JWT adapter selects the configured key independently of legacy headers", a
   }));
 
 test("verifier exposes request and metadata only after all checks and replay consumption", async () => {
-  const rawPath = "/prefix/tfo-storage/v1/sample%20file/info";
+  const rawPath = "/prefix/tfo-http-storage/v1/sample%20file/info";
   const consumed = new Set();
   const verifier = new RequestJwtVerifier(
     { adapter: ADAPTER, requestJwtSecret: SECRET },
@@ -343,7 +349,7 @@ test("serves the complete signed storage lifecycle", async () =>
 
     const info = await send(port, {
       method: "GET",
-      rawPath: `/tfo-storage/v1/${encodedFile}/info`,
+      rawPath: `/tfo-http-storage/v1/${encodedFile}/info`,
     });
     assert.equal(info.status, 200);
     assertFixedResponse(info, "application/json");
@@ -361,7 +367,7 @@ test("serves the complete signed storage lifecycle", async () =>
 
     const list = await send(port, {
       method: "GET",
-      rawPath: "/tfo-storage/v1/contracts/list",
+      rawPath: "/tfo-http-storage/v1/contracts/list",
     });
     assert.equal(list.status, 200);
     assertFixedResponse(list, "application/json");
@@ -372,7 +378,7 @@ test("serves the complete signed storage lifecycle", async () =>
 
     const get = await send(port, {
       method: "GET",
-      rawPath: `/tfo-storage/v1/${encodedFile}/get`,
+      rawPath: `/tfo-http-storage/v1/${encodedFile}/get`,
     });
     assert.equal(get.status, 200);
     assertFixedResponse(get, "application/octet-stream");
@@ -382,7 +388,7 @@ test("serves the complete signed storage lifecycle", async () =>
     const lockBody = Buffer.from('{"owner":"office-runtime-1"}', "utf8");
     const lock = await send(port, {
       method: "POST",
-      rawPath: `/tfo-storage/v1/${encodedFile}/lock`,
+      rawPath: `/tfo-http-storage/v1/${encodedFile}/lock`,
       body: lockBody,
       contentType: "application/json",
     });
@@ -391,7 +397,7 @@ test("serves the complete signed storage lifecycle", async () =>
     const saved = Buffer.from("saved-document", "utf8");
     const put = await send(port, {
       method: "PUT",
-      rawPath: `/tfo-storage/v1/${encodedFile}/put`,
+      rawPath: `/tfo-http-storage/v1/${encodedFile}/put`,
       body: saved,
       contentType: "application/octet-stream",
     });
@@ -406,7 +412,7 @@ test("serves the complete signed storage lifecycle", async () =>
 
     const unlock = await send(port, {
       method: "POST",
-      rawPath: `/tfo-storage/v1/${encodedFile}/unlock`,
+      rawPath: `/tfo-http-storage/v1/${encodedFile}/unlock`,
       body: lockBody,
       contentType: "application/json",
     });
@@ -417,7 +423,7 @@ test("serves the complete signed storage lifecycle", async () =>
       (
         await send(port, {
           method: "POST",
-          rawPath: "/tfo-storage/v1/contracts/mkdir",
+          rawPath: "/tfo-http-storage/v1/contracts/mkdir",
           body: mkdirBody,
           contentType: "application/json",
         })
@@ -430,7 +436,7 @@ test("serves the complete signed storage lifecycle", async () =>
       (
         await send(port, {
           method: "POST",
-          rawPath: `/tfo-storage/v1/${encodedFile}/rename`,
+          rawPath: `/tfo-http-storage/v1/${encodedFile}/rename`,
           body: renameBody,
           contentType: "application/json",
         })
@@ -442,7 +448,7 @@ test("serves the complete signed storage lifecycle", async () =>
       (
         await send(port, {
           method: "DELETE",
-          rawPath: "/tfo-storage/v1/contracts/renamed.docx/delete",
+          rawPath: "/tfo-http-storage/v1/contracts/renamed.docx/delete",
         })
       ).status,
       204,
@@ -451,7 +457,7 @@ test("serves the complete signed storage lifecycle", async () =>
       (
         await send(port, {
           method: "DELETE",
-          rawPath: "/tfo-storage/v1/contracts/archive/delete",
+          rawPath: "/tfo-http-storage/v1/contracts/archive/delete",
         })
       ).status,
       204,
@@ -468,7 +474,7 @@ test("PUT returns a JSON document identity stable across content changes", async
     ]) {
       const result = await send(port, {
         method: "PUT",
-        rawPath: `/tfo-storage/v1/${file.replaceAll(" ", "%20")}/put`,
+        rawPath: `/tfo-http-storage/v1/${file.replaceAll(" ", "%20")}/put`,
         body: Buffer.from(contents),
         contentType: "application/octet-stream",
       });
@@ -494,7 +500,8 @@ function assertFixedResponse(response, contentType) {
 
 test("rejects replayed and body-mismatched requests before storage access", async () =>
   fixture(async ({ storageRoot, port }) => {
-    const rawPath = "/tfo-storage/v1/contracts/sample%20document.docx/info";
+    const rawPath =
+      "/tfo-http-storage/v1/contracts/sample%20document.docx/info";
     const token = sign({ method: "GET", rawPath });
     assert.equal(
       (await send(port, { method: "GET", rawPath, token })).status,
@@ -507,7 +514,7 @@ test("rejects replayed and body-mismatched requests before storage access", asyn
 
     const signedBody = Buffer.from("signed", "utf8");
     const sentBody = Buffer.from("forged", "utf8");
-    const putPath = "/tfo-storage/v1/contracts/forged.docx/put";
+    const putPath = "/tfo-http-storage/v1/contracts/forged.docx/put";
     const forgedToken = sign({
       method: "PUT",
       rawPath: putPath,
@@ -536,7 +543,7 @@ test("rejects replayed and body-mismatched requests before storage access", asyn
       (
         await send(port, {
           method: "POST",
-          rawPath: "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+          rawPath: "/tfo-http-storage/v1/contracts/sample%20document.docx/lock",
           body: invalidLockBody,
           contentType: "application/json",
         })
@@ -558,7 +565,7 @@ test("contains paths and refuses symbolic links and root deletion", async () =>
         (
           await send(port, {
             method: "GET",
-            rawPath: "/tfo-storage/v1/outside-link/secret.docx/info",
+            rawPath: "/tfo-http-storage/v1/outside-link/secret.docx/info",
           })
         ).status,
         403,
@@ -567,7 +574,7 @@ test("contains paths and refuses symbolic links and root deletion", async () =>
         (
           await send(port, {
             method: "DELETE",
-            rawPath: "/tfo-storage/v1/delete",
+            rawPath: "/tfo-http-storage/v1/delete",
           })
         ).status,
         400,
@@ -576,7 +583,7 @@ test("contains paths and refuses symbolic links and root deletion", async () =>
         (
           await send(port, {
             method: "GET",
-            rawPath: "/tfo-storage/v1/%2E%2E/info",
+            rawPath: "/tfo-http-storage/v1/%2E%2E/info",
           })
         ).status,
         400,
@@ -652,12 +659,12 @@ test("rejects oversized stored documents and metadata responses", async () => {
       );
       const info = await send(port, {
         method: "GET",
-        rawPath: "/tfo-storage/v1/contracts/oversized.docx/info",
+        rawPath: "/tfo-http-storage/v1/contracts/oversized.docx/info",
       });
       assert.equal(info.status, 413);
       const get = await send(port, {
         method: "GET",
-        rawPath: "/tfo-storage/v1/contracts/oversized.docx/get",
+        rawPath: "/tfo-http-storage/v1/contracts/oversized.docx/get",
       });
       assert.equal(get.status, 413);
     },
@@ -668,7 +675,7 @@ test("rejects oversized stored documents and metadata responses", async () => {
     async ({ port }) => {
       const info = await send(port, {
         method: "GET",
-        rawPath: "/tfo-storage/v1/info",
+        rawPath: "/tfo-http-storage/v1/info",
       });
       assert.equal(info.status, 413);
     },
@@ -683,49 +690,49 @@ test("declares every optional operation unsupported only after authentication an
         [
           "list",
           "GET",
-          "/tfo-storage/v1/contracts/list",
+          "/tfo-http-storage/v1/contracts/list",
           Buffer.alloc(0),
           undefined,
         ],
         [
           "put",
           "PUT",
-          "/tfo-storage/v1/contracts/new.docx/put",
+          "/tfo-http-storage/v1/contracts/new.docx/put",
           Buffer.from("must-not-be-saved"),
           "application/octet-stream",
         ],
         [
           "lock",
           "POST",
-          "/tfo-storage/v1/contracts/sample%20document.docx/lock",
+          "/tfo-http-storage/v1/contracts/sample%20document.docx/lock",
           Buffer.from('{"owner":"office-runtime-1"}'),
           "application/json",
         ],
         [
           "unlock",
           "POST",
-          "/tfo-storage/v1/contracts/sample%20document.docx/unlock",
+          "/tfo-http-storage/v1/contracts/sample%20document.docx/unlock",
           Buffer.from('{"owner":"office-runtime-1"}'),
           "application/json",
         ],
         [
           "mkdir",
           "POST",
-          "/tfo-storage/v1/contracts/mkdir",
+          "/tfo-http-storage/v1/contracts/mkdir",
           Buffer.from('{"name":"must-not-exist"}'),
           "application/json",
         ],
         [
           "rename",
           "POST",
-          "/tfo-storage/v1/contracts/sample%20document.docx/rename",
+          "/tfo-http-storage/v1/contracts/sample%20document.docx/rename",
           Buffer.from('{"name":"must-not-exist.docx"}'),
           "application/json",
         ],
         [
           "delete",
           "DELETE",
-          "/tfo-storage/v1/contracts/sample%20document.docx/delete",
+          "/tfo-http-storage/v1/contracts/sample%20document.docx/delete",
           Buffer.alloc(0),
           undefined,
         ],
@@ -767,7 +774,7 @@ test("declares every optional operation unsupported only after authentication an
 
       const invalid = await send(port, {
         method: "PUT",
-        rawPath: "/tfo-storage/v1/contracts/new.docx/put",
+        rawPath: "/tfo-http-storage/v1/contracts/new.docx/put",
         body: Buffer.from("must-not-be-saved"),
         contentType: "application/octet-stream",
         token: "not-a-jwt",
